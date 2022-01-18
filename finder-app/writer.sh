@@ -10,4 +10,9 @@ then
 fi
 
 echo "$writestr" >"$writefile"
+if [ ! -f $writefile ]
+then
+    echo "File not created"
+    exit 1
+fi
 exit 0
