@@ -7,17 +7,23 @@
 
 int main(int argc, char *argv[]){
     
+    //open system logs in user mode
     openlog("assign2_log", LOG_PID, LOG_USER);
+
+    //Error if exactly two arguments not passed
     if(argc!=3){
         syslog(LOG_ERR, "Not enough arguments\n");
         return 1;
     }
-    int fd;
+    int fd; //file descriptor
+
+    //open file using file path
     fd=open(argv[1],O_CREAT|O_WRONLY|O_TRUNC, 0644);
     if(fd==-1){
         syslog(LOG_ERR, "Could not open file\n");
         return 1;
     }
+    //write second argument to the file
     int err=write(fd, argv[2], strlen(argv[2]));
     if(err==-1){
         syslog(LOG_ERR, "Could not write to file\n");
