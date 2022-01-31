@@ -67,40 +67,29 @@ bool do_exec(int count, ...)
 
     int status;
     pid_t pid;
-    //return true;
-    openlog("assign2_log", LOG_PID, LOG_USER);
 
     pid=fork();
 
     if(pid==-1){
         perror("fork");
-        printf("Failed to make a child");
         return -1;
         
     }
     else if(pid==0){
-        printf("\n\nProcess is a child %s %s\n\n", command[0], command[1]);
         int err=execv(command[0], command);
-        printf("Exec failed %d\n", err);
         if(err==-1){
             perror("execv");
             exit(-1);
         } 
     }
-    printf("Parent process\n");
     pid_t ret=wait(&status);//waitpid(pid,&status, 0);
     if(ret==-1){
         perror("waitpid");
         return -1;
     }
     else if(WIFEXITED(status)){
-        printf("Normal term %d\n", !WEXITSTATUS(status));
         return !WEXITSTATUS(status);
-        //return false;
     }
-    // else {
-    //     printf("Normal return %d\n", WEXITSTATUS(status));
-    // }
 
     return -1;
 
@@ -138,62 +127,45 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
     
     int status;
     pid_t pid;
-    //return true;
-    openlog("assign2_log", LOG_PID, LOG_USER);
 
     pid=fork();
 
     if(pid==-1){
         perror("fork");
-        printf("Failed to make a child");
         return -1;
         
     }
     else if(pid==0){
-        printf("\n\nProcess is a child %s %s\n\n", command[0], command[1]);
-        
+              
         int fd=open(outputfile,O_CREAT|O_WRONLY|O_TRUNC, 0644);
 
         if(fd==-1){
-            syslog(LOG_ERR, "Could not open file\n");
+            perror("fork");
             return -1;
         }
 
-        int ret_fd= dup2(STDOUT_FILENO, fd);
+        int ret_fd= dup2(fd, STDOUT_FILENO);
 
         if(ret_fd==fd) printf("Successfully duplicated\n");
         if(ret_fd==-1){
-            syslog(LOG_ERR, "Could not redirect\n");
             perror("Redirect fail");
             return -1;
         }
         int err=execv(command[0], command);
-        printf("Exec failed %d\n", err);
         if(err==-1){
             perror("execv");
             close(fd);
             exit(-1);
         } 
     }
-    printf("Parent process\n");
-    pid_t ret=wait(&status);//waitpid(pid,&status, 0);
+    pid_t ret=wait(&status);
     if(ret==-1){
         perror("waitpid");
         return -1;
     }
     else if(WIFEXITED(status)){
-        printf("Normal term %d\n", !WEXITSTATUS(status));
         va_end(args);
         return !WEXITSTATUS(status);
-        //return false;
     }
-    // else {
-    //     printf("Normal return %d\n", WEXITSTATUS(status));
-    // }
-
-    // close(fd);
-    // va_end(args);
-    
-    // return true;
     return -1;
 }
