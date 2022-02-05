@@ -8,7 +8,8 @@ set -u
 NUMFILES=10
 WRITESTR=AELD_IS_FUN
 WRITEDIR=/tmp/aeld-data
-username=$(cat conf/username.txt)
+FINDERDIR=/tmp
+username=$(cat ./conf/username.txt)
 
 if [ $# -lt 2 ]
 then
@@ -45,12 +46,19 @@ fi
 #make clean
 #make
 
+
 for i in $( seq 1 $NUMFILES)
 do
 	./writer "$WRITEDIR/${username}$i.txt" "$WRITESTR"
 done
 
 OUTPUTSTRING=$(./finder.sh "$WRITEDIR" "$WRITESTR")
+
+
+# rm -rf "${FINDERDIR}"
+# mkdir -p "$FINDERDIR"
+
+echo ${OUTPUTSTRING} > ${FINDERDIR}/assigntment-4-result.txt
 
 set +e
 echo ${OUTPUTSTRING} | grep "${MATCHSTR}"

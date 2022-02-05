@@ -1,6 +1,7 @@
 CC=gcc
 CFLAGS=-Wall -Werror
 
+all:	writer
 writer: writer.o
 	$(CROSS_COMPILE)$(CC) -o writer writer.o $(CFLAGS)
 
