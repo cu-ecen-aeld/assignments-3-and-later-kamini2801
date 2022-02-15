@@ -110,7 +110,7 @@ int main(int argc, char *argv[])
         int recv_complete = FALSE;
         int first_cycle = TRUE;
         char *tx_buf=NULL, *temp_ptr=NULL;
-        int prev_size = 0;
+        int prev_size = BUF_SIZE, total_len=0;
 
         while (!recv_complete)
         {
@@ -122,7 +122,6 @@ int main(int argc, char *argv[])
                 syslog(LOG_DEBUG, "Connection clsoed\n");
                 break;
             }
-            printf("R BYTES: %d\n", recv_bytes);
             for (i = 0; i < recv_bytes; i++)
             {
                 recv_len++;
@@ -133,7 +132,6 @@ int main(int argc, char *argv[])
                     break;
                 }
             }
-            printf("for loop count:%d\n", recv_len);
 
             if (first_cycle)
             {
@@ -142,10 +140,11 @@ int main(int argc, char *argv[])
                 memset(tx_buf, '\0', recv_len);
 
                 first_cycle = FALSE;
+
+                total_len=recv_len;
             }
             else
             {   
-                prev_size += recv_len;
                 printf("Prev size: %d\n", prev_size);
                 if ((temp_ptr = realloc(tx_buf, prev_size + recv_len)) == NULL)
                 {
@@ -156,17 +155,20 @@ int main(int argc, char *argv[])
                 {
                     tx_buf = temp_ptr;
                     memset(tx_buf + prev_size, '\0', recv_len);
+                    prev_size += recv_len;
                 }
+                total_len=prev_size;
             }
 
             strncat(tx_buf, recv_buf, recv_len); //copy present contents
+
         }
 
         printf("Write packet to file\n");
 
         //Appending Packet to the file
         lseek(fd, 0, SEEK_END);
-        int bytes = write(fd, tx_buf, prev_size + recv_len);
+        int bytes = write(fd, tx_buf, total_len);
         if (bytes == -1)
         {
             syslog(LOG_ERR, "Could not write to file\n");
