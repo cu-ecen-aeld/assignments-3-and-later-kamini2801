@@ -31,7 +31,7 @@ int main(int argc, char *argv[])
     int sfd, cfd, fd;
     struct sockaddr server_addr, client_addr;
     struct addrinfo hints;
-    struct addrinfo *serverinfo; //points to results
+    struct addrinfo *serverinfo, *temp; //points to results
     socklen_t client_addr_size;
     char recv_buf[BUF_SIZE];
 
@@ -54,13 +54,21 @@ int main(int argc, char *argv[])
     if (getaddrinfo(NULL, SERVER_PORT, &hints, &serverinfo) != 0)
         perror("getaddrinfo");
 
-    //server_addr.sa_addr=serverinfo->ai_addr;
-
-    if (bind(sfd, serverinfo->ai_addr,
-             sizeof(server_addr)) == -1)
+    /* getaddrinfo() returns a list of address structures.
+	  Try each address until we successfully bind(2).
+	  If socket(2) (or bind(2)) fails, we (close the socket
+	  and) try the next address. */
+    // taken from man page of getaddrinfo
+    for (temp = serverinfo; temp != NULL; temp = temp->ai_next)
     {
-        perror("bind");
-        exit(-1);
+
+        if (bind(sfd, serverinfo->ai_addr,
+                 sizeof(server_addr)) != -1)
+        {
+            printf("temp->ai_addr = %p --- passed\n", temp->ai_addr);
+            break;
+        }
+        printf("temp->ai_addr = %p --- failed\n", temp->ai_addr);
     }
     printf("Bound scoket\n");
 
@@ -101,19 +109,21 @@ int main(int argc, char *argv[])
         int recv_len = 0;
         int recv_complete = FALSE;
         int first_cycle = TRUE;
-        char *tx_buf, *temp_ptr;
+        char *tx_buf=NULL, *temp_ptr=NULL;
+        int prev_size = 0;
 
         while (!recv_complete)
         {
-            int prev_size = 0;
+            ssize_t recv_bytes;
+            recv_len=0;             
 
-            if (recv(cfd, &recv_buf, BUF_SIZE, 0) == -1)
+            if ((recv_bytes=recv(cfd, &recv_buf, BUF_SIZE, 0)) == -1)
             {
                 syslog(LOG_DEBUG, "Connection clsoed\n");
                 break;
             }
-
-            for (i = 0; i < BUF_SIZE; i++)
+            printf("R BYTES: %d\n", recv_bytes);
+            for (i = 0; i < recv_bytes; i++)
             {
                 recv_len++;
 
@@ -123,6 +133,7 @@ int main(int argc, char *argv[])
                     break;
                 }
             }
+            printf("for loop count:%d\n", recv_len);
 
             if (first_cycle)
             {
@@ -133,10 +144,10 @@ int main(int argc, char *argv[])
                 first_cycle = FALSE;
             }
             else
-            {
+            {   
                 prev_size += recv_len;
-                //printf("pREV_SIZE: %d\n", prev_size);
-                if ((temp_ptr = (char *)realloc(tx_buf, prev_size)) == NULL)
+                printf("Prev size: %d\n", prev_size);
+                if ((temp_ptr = realloc(tx_buf, prev_size + recv_len)) == NULL)
                 {
                     perror("realloc");
                     exit(-1);
@@ -144,6 +155,7 @@ int main(int argc, char *argv[])
                 else
                 {
                     tx_buf = temp_ptr;
+                    memset(tx_buf + prev_size, '\0', recv_len);
                 }
             }
 
@@ -154,7 +166,7 @@ int main(int argc, char *argv[])
 
         //Appending Packet to the file
         lseek(fd, 0, SEEK_END);
-        int bytes = write(fd, tx_buf, recv_len);
+        int bytes = write(fd, tx_buf, prev_size + recv_len);
         if (bytes == -1)
         {
             syslog(LOG_ERR, "Could not write to file\n");
@@ -172,7 +184,7 @@ int main(int argc, char *argv[])
                 syslog(LOG_ERR, "Could not read to file\n");
                 return -1;
             }
-            printf("Reading %d bytes\n", bytes);
+            //printf("Reading %d bytes\n", bytes);
             if (send(cfd, &recv_buf, bytes, 0) == -1)
             {
                 syslog(LOG_DEBUG, "Connection clsoed\n");
