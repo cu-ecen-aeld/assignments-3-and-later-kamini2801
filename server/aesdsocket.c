@@ -26,6 +26,17 @@
 #define TRUE 1
 #define FALSE 0
 
+void handler(int signo, siginfo_t *info, void *context)
+{
+    struct sigaction oldact;
+
+    if (!remove(MY_SOCK_PATH))
+    {
+        _exit(EXIT_SUCCESS);
+    }
+    _exit(EXIT_SUCCESS);
+}
+
 int main(int argc, char *argv[])
 {
     int sfd, cfd, fd;
@@ -35,6 +46,29 @@ int main(int argc, char *argv[])
     socklen_t client_addr_size;
     char recv_buf[BUF_SIZE];
 
+    struct sigaction act = {0};
+
+    act.sa_flags = SA_SIGINFO;
+    act.sa_sigaction = &handler;
+    if (sigaction(SIGTERM, &act, NULL) == -1)
+    {
+        perror("sigaction");
+        exit(EXIT_FAILURE);
+    }
+    if (sigaction(SIGINT, &act, NULL) == -1)
+    {
+        perror("sigaction");
+        exit(EXIT_FAILURE);
+    }
+    if (argc > 1)
+    {
+        printf("Supposed to run as daemon\n");
+        if (!strncmp((char *)argv[1], "-d", 2))
+        {
+            syslog(LOG_DEBUG, "Running as Daemon\n");
+            daemon(0, 0);
+        }
+    }
     //open system logs in user mode
     openlog("assign2_log", LOG_PID | LOG_PERROR | LOG_CONS, LOG_USER);
 
@@ -72,6 +106,10 @@ int main(int argc, char *argv[])
     }
     printf("Bound scoket\n");
 
+    freeaddrinfo(serverinfo);
+    if (listen(sfd, LISTEN_BACKLOG) == -1)
+        perror("listen");
+
     remove(MY_SOCK_PATH);
 
     fd = open(MY_SOCK_PATH, O_CREAT | O_RDWR | O_APPEND, 0644);
@@ -83,8 +121,6 @@ int main(int argc, char *argv[])
 
     while (1)
     {
-        if (listen(sfd, LISTEN_BACKLOG) == -1)
-            perror("listen");
 
         /* Now we can accept incoming connections one
               at a time using accept(2). */
@@ -109,15 +145,15 @@ int main(int argc, char *argv[])
         int recv_len = 0;
         int recv_complete = FALSE;
         int first_cycle = TRUE;
-        char *tx_buf=NULL, *temp_ptr=NULL;
-        int prev_size = BUF_SIZE, total_len=0;
+        char *tx_buf = NULL, *temp_ptr = NULL;
+        int prev_size = BUF_SIZE, total_len = 0;
 
         while (!recv_complete)
         {
             ssize_t recv_bytes;
-            recv_len=0;             
+            recv_len = 0;
 
-            if ((recv_bytes=recv(cfd, &recv_buf, BUF_SIZE, 0)) == -1)
+            if ((recv_bytes = recv(cfd, &recv_buf, BUF_SIZE, 0)) == -1)
             {
                 syslog(LOG_DEBUG, "Connection clsoed\n");
                 break;
@@ -135,18 +171,24 @@ int main(int argc, char *argv[])
 
             if (first_cycle)
             {
-                tx_buf = (char *)malloc(recv_len);
+                tx_buf = (char *)malloc(recv_len+1);
+
+                if (tx_buf == NULL)
+                {
+                    perror("malloc");
+                    exit(-1);
+                }
 
                 memset(tx_buf, '\0', recv_len);
 
                 first_cycle = FALSE;
 
-                total_len=recv_len;
+                total_len = recv_len;
             }
             else
-            {   
+            {
                 printf("Prev size: %d\n", prev_size);
-                if ((temp_ptr = realloc(tx_buf, prev_size + recv_len)) == NULL)
+                if ((temp_ptr = realloc(tx_buf, prev_size + recv_len + 1)) == NULL)
                 {
                     perror("realloc");
                     exit(-1);
@@ -157,11 +199,10 @@ int main(int argc, char *argv[])
                     memset(tx_buf + prev_size, '\0', recv_len);
                     prev_size += recv_len;
                 }
-                total_len=prev_size;
+                total_len = prev_size;
             }
 
             strncat(tx_buf, recv_buf, recv_len); //copy present contents
-
         }
 
         printf("Write packet to file\n");
@@ -196,12 +237,6 @@ int main(int argc, char *argv[])
         free(tx_buf);
         printf("end\n");
     }
-
-    freeaddrinfo(serverinfo);
-
-    close(sfd);
-    close(cfd);
-    close(fd);
     /* When no longer required, the socket pathname, MY_SOCK_PATH
               should be deleted using unlink(2) or remove(3). */
 }
