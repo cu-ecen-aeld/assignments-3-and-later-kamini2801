@@ -26,26 +26,27 @@
 #define TRUE 1
 #define FALSE 0
 
+int sfd, cfd, fd;
+
 void handler(int signo, siginfo_t *info, void *context)
 {
     struct sigaction oldact;
+
+    syslog(LOG_DEBUG, "\n\nKilling process\n\n");
+
+    shutdown(cfd, SHUT_RDWR);
+    close(cfd);
+    close(sfd);
 
     if (!remove(MY_SOCK_PATH))
     {
         _exit(EXIT_SUCCESS);
     }
-    _exit(EXIT_SUCCESS);
+    _exit(EXIT_FAILURE);
 }
 
-int main(int argc, char *argv[])
+void signal_init()
 {
-    int sfd, cfd, fd;
-    struct sockaddr server_addr, client_addr;
-    struct addrinfo hints;
-    struct addrinfo *serverinfo, *temp; //points to results
-    socklen_t client_addr_size;
-    char recv_buf[BUF_SIZE];
-
     struct sigaction act = {0};
 
     act.sa_flags = SA_SIGINFO;
@@ -60,6 +61,21 @@ int main(int argc, char *argv[])
         perror("sigaction");
         exit(EXIT_FAILURE);
     }
+    
+}
+
+
+int main(int argc, char *argv[])
+{
+    struct sockaddr server_addr, client_addr;
+    struct addrinfo hints;
+    struct addrinfo *serverinfo, *temp; //points to results
+    socklen_t client_addr_size;
+    char recv_buf[BUF_SIZE];
+    int connected = FALSE;
+
+    signal_init();
+
     if (argc > 1)
     {
         printf("Supposed to run as daemon\n");
@@ -69,13 +85,9 @@ int main(int argc, char *argv[])
             daemon(0, 0);
         }
     }
+
     //open system logs in user mode
     openlog("assign2_log", LOG_PID | LOG_PERROR | LOG_CONS, LOG_USER);
-
-    sfd = socket(PF_INET, SOCK_STREAM, 0);
-    if (sfd == -1)
-        perror("socket");
-    printf("Created socket\n");
 
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sa_family = AF_INET;
@@ -96,17 +108,34 @@ int main(int argc, char *argv[])
     for (temp = serverinfo; temp != NULL; temp = temp->ai_next)
     {
 
+        sfd = socket(PF_INET, SOCK_STREAM, 0);
+        if (sfd == -1)
+        {
+            perror("socket");
+            exit(EXIT_FAILURE);
+        }
+        printf("Created socket\n");
+
         if (bind(sfd, serverinfo->ai_addr,
                  sizeof(server_addr)) != -1)
         {
             printf("temp->ai_addr = %p --- passed\n", temp->ai_addr);
+            connected = TRUE;
             break;
         }
         printf("temp->ai_addr = %p --- failed\n", temp->ai_addr);
+        connected = FALSE;
+        close(sfd);
     }
-    printf("Bound scoket\n");
+    if (!connected)
+    {
+        printf("\n\nSOCKET FAILED\n\n");
+        raise(SIGTERM);
+    }
+    printf("Bound socket\n");
 
     freeaddrinfo(serverinfo);
+
     if (listen(sfd, LISTEN_BACKLOG) == -1)
         perror("listen");
 
@@ -171,7 +200,7 @@ int main(int argc, char *argv[])
 
             if (first_cycle)
             {
-                tx_buf = (char *)malloc(recv_len+1);
+                tx_buf = (char *)malloc(recv_len + 1);
 
                 if (tx_buf == NULL)
                 {
@@ -235,6 +264,7 @@ int main(int argc, char *argv[])
         }
 
         free(tx_buf);
+
         printf("end\n");
     }
     /* When no longer required, the socket pathname, MY_SOCK_PATH
