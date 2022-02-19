@@ -48,13 +48,13 @@ void handler(int signo, siginfo_t *info, void *context)
         ret = EXIT_FAILURE;
 
     if (close(sfd))
-        ret = 2;
+        ret = EXIT_FAILURE;
     
     if (close(fd))
-        ret = 2;
+        ret = EXIT_FAILURE;
 
     if (unlink(MY_SOCK_PATH))
-        ret = 3;
+        ret = EXIT_FAILURE;
     
     closelog();
 
@@ -90,16 +90,6 @@ int main(int argc, char *argv[])
 
     // Signal Handler setup for handling SIGTERM, SIGINT
     signal_init();
-
-    //Daemonize if -d argument passed
-    if (argc > 1)
-    {
-        if (!strncmp((char *)argv[1], "-d", 2))
-        {
-            syslog(LOG_DEBUG, "Running as Daemon\n");
-            daemon(0, 0);
-        }
-    }
 
     //open system logs in user mode
     openlog("assign5.1_log", LOG_PID | LOG_PERROR | LOG_CONS, LOG_USER);
@@ -156,6 +146,16 @@ int main(int argc, char *argv[])
     syslog(LOG_DEBUG, "Bound socket\n");
 
     freeaddrinfo(serverinfo);
+
+    //Daemonize if -d argument passed
+    if (argc > 1)
+    {
+        if (!strncmp((char *)argv[1], "-d", 2))
+        {
+            syslog(LOG_DEBUG, "Running as Daemon\n");
+            daemon(0, 0);
+        }
+    }
 
     if (listen(sfd, LISTEN_BACKLOG) == -1)
     {
