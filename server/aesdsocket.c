@@ -18,6 +18,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <signal.h>
+#include <arpa/inet.h>
 
 #define MY_SOCK_PATH "/var/tmp/aesddata"
 #define LISTEN_BACKLOG 50
@@ -27,22 +28,37 @@
 #define FALSE 0
 
 int sfd, cfd, fd;
+struct addrinfo *serverinfo, *temp; //points to results
 
 void handler(int signo, siginfo_t *info, void *context)
 {
-    struct sigaction oldact;
+    syslog(LOG_DEBUG, "Caught signnal, exiting");
 
-    syslog(LOG_DEBUG, "\n\nKilling process\n\n");
+    int ret = EXIT_SUCCESS;
 
-    shutdown(cfd, SHUT_RDWR);
-    close(cfd);
-    close(sfd);
-
-    if (!remove(MY_SOCK_PATH))
+    if ((cfd > -1))
     {
-        _exit(EXIT_SUCCESS);
+        if (close(cfd))
+            ret = 10;
+
+        if (shutdown(cfd, SHUT_RDWR))
+            ret = EXIT_FAILURE;
     }
-    _exit(EXIT_FAILURE);
+    if (shutdown(sfd, SHUT_RDWR))
+        ret = EXIT_FAILURE;
+
+    if (close(sfd))
+        ret = 2;
+    
+    if (close(fd))
+        ret = 2;
+
+    if (unlink(MY_SOCK_PATH))
+        ret = 3;
+    
+    closelog();
+
+    _exit(ret);
 }
 
 void signal_init()
@@ -53,32 +69,31 @@ void signal_init()
     act.sa_sigaction = &handler;
     if (sigaction(SIGTERM, &act, NULL) == -1)
     {
-        perror("sigaction");
+        syslog(LOG_ERR, "Sigaction failed");
         exit(EXIT_FAILURE);
     }
     if (sigaction(SIGINT, &act, NULL) == -1)
     {
-        perror("sigaction");
+        syslog(LOG_ERR, "Sigaction failed");
         exit(EXIT_FAILURE);
     }
-    
 }
-
 
 int main(int argc, char *argv[])
 {
     struct sockaddr server_addr, client_addr;
     struct addrinfo hints;
-    struct addrinfo *serverinfo, *temp; //points to results
     socklen_t client_addr_size;
     char recv_buf[BUF_SIZE];
-    int connected = FALSE;
+    int bound = FALSE;          //flag for bind condition
+    char ip4[INET_ADDRSTRLEN]; // space to hold the IPv4 string
 
+    // Signal Handler setup for handling SIGTERM, SIGINT
     signal_init();
 
+    //Daemonize if -d argument passed
     if (argc > 1)
     {
-        printf("Supposed to run as daemon\n");
         if (!strncmp((char *)argv[1], "-d", 2))
         {
             syslog(LOG_DEBUG, "Running as Daemon\n");
@@ -87,80 +102,97 @@ int main(int argc, char *argv[])
     }
 
     //open system logs in user mode
-    openlog("assign2_log", LOG_PID | LOG_PERROR | LOG_CONS, LOG_USER);
+    openlog("assign5.1_log", LOG_PID | LOG_PERROR | LOG_CONS, LOG_USER);
 
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sa_family = AF_INET;
+    //open socket
+    sfd = socket(PF_INET, SOCK_STREAM, 0);
+
+    if (sfd == -1)
+    {
+        syslog(LOG_ERR, "socket\n");
+        exit(EXIT_FAILURE);
+    }
+    syslog(LOG_DEBUG, "Successfully opened Socket\n");
+
+    if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0)
+    {
+        syslog(LOG_ERR, "socketopt\n");
+        exit(EXIT_FAILURE);
+    }
 
     //Setting up sockaddr using getaddrinfo()
-
     memset(&hints, 0, sizeof(hints)); //why??
     hints.ai_flags = AI_PASSIVE;
 
-    if (getaddrinfo(NULL, SERVER_PORT, &hints, &serverinfo) != 0)
-        perror("getaddrinfo");
+    if (getaddrinfo(NULL, SERVER_PORT, &hints, &serverinfo) != 0){
+        syslog(LOG_ERR, "getaddrinfo\n");   
+        exit(EXIT_FAILURE);
+    }
 
     /* getaddrinfo() returns a list of address structures.
 	  Try each address until we successfully bind(2).
 	  If socket(2) (or bind(2)) fails, we (close the socket
 	  and) try the next address. */
-    // taken from man page of getaddrinfo
+    // ref: man getaddrinfo
+
     for (temp = serverinfo; temp != NULL; temp = temp->ai_next)
     {
-
-        sfd = socket(PF_INET, SOCK_STREAM, 0);
-        if (sfd == -1)
-        {
-            perror("socket");
-            exit(EXIT_FAILURE);
-        }
-        printf("Created socket\n");
 
         if (bind(sfd, serverinfo->ai_addr,
                  sizeof(server_addr)) != -1)
         {
-            printf("temp->ai_addr = %p --- passed\n", temp->ai_addr);
-            connected = TRUE;
+            //printf("temp->ai_addr = %p address allocated \n", temp->ai_addr);
+            bound = TRUE;
             break;
         }
-        printf("temp->ai_addr = %p --- failed\n", temp->ai_addr);
-        connected = FALSE;
-        close(sfd);
+        //printf("temp->ai_addr = %p address failed\n", temp->ai_addr);
     }
-    if (!connected)
+    if (!bound)
     {
-        printf("\n\nSOCKET FAILED\n\n");
-        raise(SIGTERM);
+        syslog(LOG_ERR, "\n\nSOCKET FAILED\n\n");
+        exit(EXIT_FAILURE);
     }
-    printf("Bound socket\n");
+
+    syslog(LOG_DEBUG, "Bound socket\n");
 
     freeaddrinfo(serverinfo);
 
     if (listen(sfd, LISTEN_BACKLOG) == -1)
-        perror("listen");
+    {
+        syslog(LOG_ERR, "listen");
+        exit(EXIT_FAILURE);
+    }
 
     remove(MY_SOCK_PATH);
 
     fd = open(MY_SOCK_PATH, O_CREAT | O_RDWR | O_APPEND, 0644);
     if (fd == -1)
     {
-        perror("open");
+        syslog(LOG_ERR, "open");
+        exit(EXIT_FAILURE);
     }
-    printf("Opened file\n");
+    
+    syslog(LOG_DEBUG,"Opened file\n");
 
     while (1)
     {
 
-        /* Now we can accept incoming connections one
-              at a time using accept(2). */
+        /*Accept incoming connections one at a time using accept(2). */
 
         client_addr_size = sizeof(client_addr);
         cfd = accept(sfd, (struct sockaddr *)&client_addr,
                      &client_addr_size);
         if (cfd == -1)
-            perror("accept");
-        printf("Accepted connection\n");
+        {
+            syslog(LOG_ERR, "Could not write to file\n");
+            exit(EXIT_FAILURE);
+        }
 
+        struct sockaddr_in *sa = (struct sockaddr_in *)&client_addr;
+
+        inet_ntop(AF_INET, &(sa->sin_addr), ip4, INET_ADDRSTRLEN);
+
+        syslog(LOG_DEBUG, "Accepted connection from %s\n", ip4);
         /* 
     *   Code to deal with incoming connection(s)... 
     *
@@ -184,7 +216,7 @@ int main(int argc, char *argv[])
 
             if ((recv_bytes = recv(cfd, &recv_buf, BUF_SIZE, 0)) == -1)
             {
-                syslog(LOG_DEBUG, "Connection clsoed\n");
+                syslog(LOG_ERR, "recv\n");
                 break;
             }
             for (i = 0; i < recv_bytes; i++)
@@ -204,8 +236,8 @@ int main(int argc, char *argv[])
 
                 if (tx_buf == NULL)
                 {
-                    perror("malloc");
-                    exit(-1);
+                    syslog(LOG_ERR, "malloc");
+                    exit(EXIT_FAILURE);
                 }
 
                 memset(tx_buf, '\0', recv_len);
@@ -216,11 +248,11 @@ int main(int argc, char *argv[])
             }
             else
             {
-                printf("Prev size: %d\n", prev_size);
+                // printf("Prev size: %d\n", prev_size);
                 if ((temp_ptr = realloc(tx_buf, prev_size + recv_len + 1)) == NULL)
                 {
-                    perror("realloc");
-                    exit(-1);
+                    syslog(LOG_ERR, "realloc");
+                    exit(EXIT_FAILURE);
                 }
                 else
                 {
@@ -234,17 +266,17 @@ int main(int argc, char *argv[])
             strncat(tx_buf, recv_buf, recv_len); //copy present contents
         }
 
-        printf("Write packet to file\n");
+        // printf("Write packet to file\n");
 
         //Appending Packet to the file
         lseek(fd, 0, SEEK_END);
         int bytes = write(fd, tx_buf, total_len);
         if (bytes == -1)
         {
-            syslog(LOG_ERR, "Could not write to file\n");
+            syslog(LOG_ERR, "write\n");
             return -1;
         }
-        printf("Writing %d bytes\n", bytes);
+        // printf("Writing %d bytes\n", bytes);
 
         lseek(fd, 0, SEEK_SET);
 
@@ -253,19 +285,20 @@ int main(int argc, char *argv[])
             //bytes = read(fd, recv_buf, BUF_SIZE);
             if (bytes == -1)
             {
-                syslog(LOG_ERR, "Could not read to file\n");
+                syslog(LOG_ERR, "read\n");
                 return -1;
             }
             //printf("Reading %d bytes\n", bytes);
             if (send(cfd, &recv_buf, bytes, 0) == -1)
             {
-                syslog(LOG_DEBUG, "Connection clsoed\n");
+                syslog(LOG_ERR, "send\n");
             }
         }
 
         free(tx_buf);
-
-        printf("end\n");
+        close(cfd);
+        cfd = -1;
+        syslog(LOG_DEBUG, "Closed connection from %s\n", ip4);
     }
     /* When no longer required, the socket pathname, MY_SOCK_PATH
               should be deleted using unlink(2) or remove(3). */
