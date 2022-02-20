@@ -40,9 +40,13 @@ void handler(int signo, siginfo_t *info, void *context)
     {
         if (shutdown(cfd, SHUT_RDWR))
             ret = EXIT_FAILURE;
+
         if (close(cfd))
-            ret = 10;
+            ret = EXIT_FAILURE;
+
     }
+    if (shutdown(sfd, SHUT_RDWR))
+            ret = EXIT_FAILURE;
 
     if (close(sfd))
         ret = EXIT_FAILURE;
