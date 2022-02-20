@@ -2,7 +2,7 @@
 *   Socket program for native socket server
 *   Author: Kamini Budke
 *   Date: 02-12-2022
-*   
+*   @ref: https://beej.us/guide/bgnet/html/
 */
 
 #include <sys/types.h>
@@ -20,15 +20,15 @@
 #include <signal.h>
 #include <arpa/inet.h>
 
-#define MY_SOCK_PATH "/var/tmp/aesddata"
+#define MY_SOCK_PATH "/var/tmp/aesdsocketdata"
 #define LISTEN_BACKLOG 50
 #define SERVER_PORT "9000"
 #define BUF_SIZE 1024
 #define TRUE 1
 #define FALSE 0
 
-int sfd, cfd, fd;
-struct addrinfo *serverinfo, *temp; //points to results
+int sfd, cfd, fd;                                 // file descriptors
+struct addrinfo *serverinfo = NULL, *temp = NULL; //points to results
 
 void handler(int signo, siginfo_t *info, void *context)
 {
@@ -38,14 +38,11 @@ void handler(int signo, siginfo_t *info, void *context)
 
     if ((cfd > -1))
     {
-        if (close(cfd))
-            ret = 10;
-
         if (shutdown(cfd, SHUT_RDWR))
             ret = EXIT_FAILURE;
+        if (close(cfd))
+            ret = 10;
     }
-    if (shutdown(sfd, SHUT_RDWR))
-        ret = EXIT_FAILURE;
 
     if (close(sfd))
         ret = EXIT_FAILURE;
@@ -69,12 +66,12 @@ void signal_init()
     act.sa_sigaction = &handler;
     if (sigaction(SIGTERM, &act, NULL) == -1)
     {
-        syslog(LOG_ERR, "Sigaction failed");
+        syslog(LOG_ERR, "Sigaction");
         exit(EXIT_FAILURE);
     }
     if (sigaction(SIGINT, &act, NULL) == -1)
     {
-        syslog(LOG_ERR, "Sigaction failed");
+        syslog(LOG_ERR, "Sigaction");
         exit(EXIT_FAILURE);
     }
 }
@@ -96,8 +93,8 @@ int main(int argc, char *argv[])
 
     //open socket
 
-        //Setting up sockaddr using getaddrinfo()
-    memset(&hints, 0, sizeof(hints)); //why??
+    //Setting up sockaddr using getaddrinfo()
+    memset(&hints, 0, sizeof(hints)); 
     hints.ai_flags = AI_PASSIVE;
 
     if (getaddrinfo(NULL, SERVER_PORT, &hints, &serverinfo) != 0)
@@ -123,40 +120,45 @@ int main(int argc, char *argv[])
         }
         syslog(LOG_DEBUG, "Successfully opened Socket\n");
 
-        if (bind(sfd, temp->ai_addr, temp->ai_addrlen)!= -1)
-                // sizeof(server_addr)) != -1)
+        if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0)
         {
-            printf("temp->ai_addr = %p address allocated \n", temp->ai_addr);
+            syslog(LOG_ERR, "socketopt\n");
+            exit(EXIT_FAILURE);
+        }
+
+        if (bind(sfd, temp->ai_addr, //temp->ai_addrlen)!= -1)
+                 sizeof(server_addr)) != -1)
+        {
+            //printf("temp->ai_addr = %p address allocated \n", temp->ai_addr);
             bound = TRUE;
             break;
         }
-        printf("temp->ai_addr = %p address failed\n", temp->ai_addr);
+        //printf("temp->ai_addr = %p address failed\n", temp->ai_addr);
         close(sfd);
     }
     if (!bound)
     {
-        syslog(LOG_ERR, "\n\nSOCKET FAILED\n\n");
+        syslog(LOG_ERR, "bind ");
         freeaddrinfo(serverinfo);
         exit(EXIT_FAILURE);
     }
 
-    syslog(LOG_DEBUG, "Bound socket\n");
+    syslog(LOG_DEBUG, "Bind socket success\n");
 
     freeaddrinfo(serverinfo);
 
-    if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0)
-    {
-        syslog(LOG_ERR, "socketopt\n");
-        exit(EXIT_FAILURE);
-    }
-
     //Daemonize if -d argument passed
+    int daemon_rec=-1;
     if (argc > 1)
     {
         if (!strncmp((char *)argv[1], "-d", 2))
         {
             syslog(LOG_DEBUG, "Running as Daemon\n");
-            daemon(0, 0);
+            daemon_rec=daemon(0, 0);
+        }
+        if(daemon_rec < 0){
+            syslog(LOG_ERR, "daemonize");    
+            exit(EXIT_FAILURE);
         }
     }
 
@@ -180,14 +182,14 @@ int main(int argc, char *argv[])
     while (1)
     {
 
-        /*Accept incoming connections one at a time using accept(2). */
+        /*Accept incoming connections one at a time */
 
         client_addr_size = sizeof(client_addr);
         cfd = accept(sfd, (struct sockaddr *)&client_addr,
                      &client_addr_size);
         if (cfd == -1)
         {
-            syslog(LOG_ERR, "Could not write to file\n");
+            syslog(LOG_ERR, "accept");
             exit(EXIT_FAILURE);
         }
 
@@ -220,7 +222,7 @@ int main(int argc, char *argv[])
             if ((recv_bytes = recv(cfd, &recv_buf, BUF_SIZE, 0)) == -1)
             {
                 syslog(LOG_ERR, "recv\n");
-                break;
+                exit(EXIT_FAILURE);
             }
             for (i = 0; i < recv_bytes; i++)
             {
@@ -277,7 +279,7 @@ int main(int argc, char *argv[])
         if (bytes == -1)
         {
             syslog(LOG_ERR, "write\n");
-            return -1;
+            exit(EXIT_FAILURE);
         }
         // printf("Writing %d bytes\n", bytes);
 
@@ -289,20 +291,22 @@ int main(int argc, char *argv[])
             if (bytes == -1)
             {
                 syslog(LOG_ERR, "read\n");
-                return -1;
+                exit(EXIT_FAILURE);
             }
             //printf("Reading %d bytes\n", bytes);
             if (send(cfd, &recv_buf, bytes, 0) == -1)
             {
                 syslog(LOG_ERR, "send\n");
+                exit(EXIT_FAILURE);
             }
         }
 
         free(tx_buf);
         close(cfd);
-        cfd = -1;
+        cfd = -1;           //reset to indicate fd already clsoed (signal handler)
         syslog(LOG_DEBUG, "Closed connection from %s\n", ip4);
     }
     /* When no longer required, the socket pathname, MY_SOCK_PATH
               should be deleted using unlink(2) or remove(3). */
+    raise(SIGTERM);
 }
