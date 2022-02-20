@@ -49,13 +49,13 @@ void handler(int signo, siginfo_t *info, void *context)
 
     if (close(sfd))
         ret = EXIT_FAILURE;
-    
+
     if (close(fd))
         ret = EXIT_FAILURE;
 
     if (unlink(MY_SOCK_PATH))
         ret = EXIT_FAILURE;
-    
+
     closelog();
 
     _exit(ret);
@@ -85,7 +85,7 @@ int main(int argc, char *argv[])
     struct addrinfo hints;
     socklen_t client_addr_size;
     char recv_buf[BUF_SIZE];
-    int bound = FALSE;          //flag for bind condition
+    int bound = FALSE;         //flag for bind condition
     char ip4[INET_ADDRSTRLEN]; // space to hold the IPv4 string
 
     // Signal Handler setup for handling SIGTERM, SIGINT
@@ -95,27 +95,14 @@ int main(int argc, char *argv[])
     openlog("assign5.1_log", LOG_PID | LOG_PERROR | LOG_CONS, LOG_USER);
 
     //open socket
-    sfd = socket(PF_INET, SOCK_STREAM, 0);
 
-    if (sfd == -1)
-    {
-        syslog(LOG_ERR, "socket\n");
-        exit(EXIT_FAILURE);
-    }
-    syslog(LOG_DEBUG, "Successfully opened Socket\n");
-
-    if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0)
-    {
-        syslog(LOG_ERR, "socketopt\n");
-        exit(EXIT_FAILURE);
-    }
-
-    //Setting up sockaddr using getaddrinfo()
+        //Setting up sockaddr using getaddrinfo()
     memset(&hints, 0, sizeof(hints)); //why??
     hints.ai_flags = AI_PASSIVE;
 
-    if (getaddrinfo(NULL, SERVER_PORT, &hints, &serverinfo) != 0){
-        syslog(LOG_ERR, "getaddrinfo\n");   
+    if (getaddrinfo(NULL, SERVER_PORT, &hints, &serverinfo) != 0)
+    {
+        syslog(LOG_ERR, "getaddrinfo\n");
         exit(EXIT_FAILURE);
     }
 
@@ -127,25 +114,41 @@ int main(int argc, char *argv[])
 
     for (temp = serverinfo; temp != NULL; temp = temp->ai_next)
     {
+        sfd = socket(PF_INET, SOCK_STREAM, 0);
 
-        if (bind(sfd, serverinfo->ai_addr,
-                 sizeof(server_addr)) != -1)
+        if (sfd == -1)
         {
-            //printf("temp->ai_addr = %p address allocated \n", temp->ai_addr);
+            syslog(LOG_ERR, "socket\n");
+            exit(EXIT_FAILURE);
+        }
+        syslog(LOG_DEBUG, "Successfully opened Socket\n");
+
+        if (bind(sfd, temp->ai_addr, temp->ai_addrlen)!= -1)
+                // sizeof(server_addr)) != -1)
+        {
+            printf("temp->ai_addr = %p address allocated \n", temp->ai_addr);
             bound = TRUE;
             break;
         }
-        //printf("temp->ai_addr = %p address failed\n", temp->ai_addr);
+        printf("temp->ai_addr = %p address failed\n", temp->ai_addr);
+        close(sfd);
     }
     if (!bound)
     {
         syslog(LOG_ERR, "\n\nSOCKET FAILED\n\n");
+        freeaddrinfo(serverinfo);
         exit(EXIT_FAILURE);
     }
 
     syslog(LOG_DEBUG, "Bound socket\n");
 
     freeaddrinfo(serverinfo);
+
+    if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0)
+    {
+        syslog(LOG_ERR, "socketopt\n");
+        exit(EXIT_FAILURE);
+    }
 
     //Daemonize if -d argument passed
     if (argc > 1)
@@ -171,8 +174,8 @@ int main(int argc, char *argv[])
         syslog(LOG_ERR, "open");
         exit(EXIT_FAILURE);
     }
-    
-    syslog(LOG_DEBUG,"Opened file\n");
+
+    syslog(LOG_DEBUG, "Opened file\n");
 
     while (1)
     {
