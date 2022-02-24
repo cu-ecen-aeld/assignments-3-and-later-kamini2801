@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "queue.h"
 
 // gcc queue_example.c -o queue_example
@@ -20,7 +21,7 @@
 
 
 // Add thread to taila nd return pointer to last element (i.e. tail)
-node_t* _add_thread(head_t * head, const int thread, const int client_fd)
+node_t* _add_thread(head_t * head, const unsigned long thread, const int client_fd, char* ip_string)
 {
     int c = 0;
     //for (c = 0; c < strlen(string); ++c)
@@ -33,6 +34,10 @@ node_t* _add_thread(head_t * head, const int thread, const int client_fd)
         }
         e->thread_id = thread;
         e-> cfd = client_fd;
+        e->comp_flag = 0;
+        
+        strncpy(e->ip, ip_string, 16);
+    
         TAILQ_INSERT_TAIL(head, e, nodes);
         e = NULL;
     //}
@@ -52,12 +57,27 @@ void _free_queue(head_t * head)
     }
 }
 
-void _remove_thread(head_t * head, int thread_id)
+void _remove_thread(head_t * head, unsigned long thread_id)
 {
     struct node * e = NULL;
      TAILQ_FOREACH(e, head, nodes)
     {
         if(e->thread_id==thread_id)
+        {
+            TAILQ_REMOVE(head, e, nodes);
+            free(e);
+            break;
+        }
+    }
+    
+}
+
+void _remove_complete_thread(head_t * head)
+{
+    struct node * e = NULL;
+     TAILQ_FOREACH(e, head, nodes)
+    {
+        if(e->comp_flag)
         {
             TAILQ_REMOVE(head, e, nodes);
             free(e);

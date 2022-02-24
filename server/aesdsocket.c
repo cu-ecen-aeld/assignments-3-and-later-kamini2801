@@ -20,6 +20,7 @@
 #include <signal.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <time.h>
 #include "queue.h"
 
 #define MY_SOCK_PATH "/var/tmp/aesdsocketdata"
@@ -29,11 +30,10 @@
 #define TRUE 1
 #define FALSE 0
 
-int sfd, fd;                                 // file descriptors
+int sfd, fd;                                      // file descriptors
 struct addrinfo *serverinfo = NULL, *temp = NULL; //points to results
 
 pthread_mutex_t mutex;
-
 
 void handler(int signo, siginfo_t *info, void *context)
 {
@@ -84,9 +84,9 @@ void signal_init()
     }
 }
 
-void* socket_func(void* arg)
+void *socket_func(void *arg)
 {
-    node_t* node = arg;
+    node_t *node = arg;
     //Extracting a packet
     int i;
     char recv_buf[BUF_SIZE];
@@ -97,6 +97,8 @@ void* socket_func(void* arg)
     int prev_size = BUF_SIZE, total_len = 0;
     int bound = FALSE;         //flag for bind condition
     char ip4[INET_ADDRSTRLEN]; // space to hold the IPv4 string
+
+    syslog(LOG_DEBUG, "Accepted connection from %s\n", node->ip);
 
     memset(&recv_buf, '\0', BUF_SIZE);
 
@@ -160,17 +162,9 @@ void* socket_func(void* arg)
     //Locking before accessing file
     pthread_mutex_lock(&mutex);
 
-    fd = open(MY_SOCK_PATH, O_CREAT | O_RDWR | O_APPEND, 0644);
-    if (fd == -1)
-    {
-        syslog(LOG_ERR, "open");
-        exit(EXIT_FAILURE);
-    }
-
-    syslog(LOG_DEBUG, "Opened file\n");
-
     //Appending Packet to the file
     lseek(fd, 0, SEEK_END);
+
     int bytes = write(fd, tx_buf, total_len);
     if (bytes == -1)
     {
@@ -198,9 +192,13 @@ void* socket_func(void* arg)
     }
 
     free(tx_buf);
+
     close(node->cfd);
     node->cfd = -1; //reset to indicate fd already clsoed (signal handler)
-    syslog(LOG_DEBUG, "Closed connection from %s\n", ip4);
+
+    syslog(LOG_DEBUG, "Closed connection from %s\n", node->ip);
+
+    node->comp_flag = 1;
 
     //Unlock mutex after completing transactions with file and updating thread status
     pthread_mutex_unlock(&mutex);
@@ -208,9 +206,86 @@ void* socket_func(void* arg)
     return NULL;
 }
 
-void* cleanup_func(void* head){
-    return NULL;
+void *cleanup_func(void *arg)
+{
 
+    head_t *head = arg;
+    while (1)
+    {
+        struct node *temp_thread = NULL;
+        TAILQ_FOREACH(temp_thread, head, nodes)
+        {
+            if (temp_thread->comp_flag)
+            {
+                printf("Found dead thread: %ld\n", temp_thread->thread_id);
+                //close(temp_thread->cfd);
+
+                //join thread
+                int p_ret = -1;
+
+                p_ret = pthread_join((pthread_t)temp_thread->thread_id, NULL);
+                if (p_ret)
+                {
+                    syslog(LOG_ERR, "pthread_join failed with error: %s", strerror(p_ret));
+                    exit(EXIT_FAILURE);
+                }
+
+                //remove thread from list
+                TAILQ_REMOVE(head, temp_thread, nodes);
+                free(temp_thread);
+
+                break;
+            }
+        }
+        usleep(100);
+    }
+    return NULL;
+}
+
+void *time_func(void *arg)
+{   
+
+    while(1)
+    {
+    // get time
+    char outstr[200];
+    time_t t;
+    struct tm *tmp;
+
+    t = time(NULL);
+    tmp = localtime(&t);
+    if (tmp == NULL)
+    {
+        perror("localtime");
+        exit(EXIT_FAILURE);
+    }
+
+    if (strftime(outstr, sizeof(outstr), "%a, %d %b %Y %T", tmp) == 0)
+    {
+        fprintf(stderr, "strftime returned 0");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Result string is \"%s\"\n", outstr);
+
+    strncat(outstr, "\n\0", 2);
+
+    printf("first strn complete\n");
+    //write
+    char outstr_complete[]="timestamp:";
+    strncat(outstr_complete, outstr, strlen(outstr));
+
+    //Locking before accessing file
+    pthread_mutex_lock(&mutex);
+
+    int bytes = write(fd, outstr_complete, strlen(outstr_complete));
+
+    //Unlock mutex after completing transactions with file and updating thread status
+    pthread_mutex_unlock(&mutex);
+
+    //sleeps
+    sleep(10);
+    }
 }
 
 int main(int argc, char *argv[])
@@ -226,7 +301,7 @@ int main(int argc, char *argv[])
     signal_init();
 
     //open system logs in user mode
-    openlog("assign5.1_log", LOG_PID | LOG_PERROR | LOG_CONS, LOG_USER);
+    openlog("assign6.1_log", LOG_PID | LOG_PERROR | LOG_CONS, LOG_USER);
 
     //open socket
 
@@ -308,10 +383,18 @@ int main(int argc, char *argv[])
 
     remove(MY_SOCK_PATH);
 
+    fd = open(MY_SOCK_PATH, O_CREAT | O_RDWR | O_APPEND, 0644);
+    if (fd == -1)
+    {
+        syslog(LOG_ERR, "open");
+        exit(EXIT_FAILURE);
+    }
+
+    syslog(LOG_DEBUG, "Opened file\n");
 
     /*****************ASSIGNMENT 6 additions*****************/
 
-   /* 
+    /* 
     *   QUEUE Initilialization
     *
     *   The queue is used to keep a track of threads created. 
@@ -323,28 +406,35 @@ int main(int argc, char *argv[])
     *   The queue is updated and cleaned by a cleanup thread
     * 
     * */
-     // declare the head
+    // declare the head
     head_t head;
     TAILQ_INIT(&head); // initialize the head
-
 
     //Threads
 
     pthread_t thread;
-    int p_ret=-1;
+    int p_ret = -1;
 
     //Global mutext required to access file
-    // pthread_mutex_init(&mutex, NULL);
-    // if(p_ret!=0)
-    // {
-    //     syslog(LOG_ERR, "pthread_mutex_init failed with error: %s", strerror(p_ret));
-    //     exit(EXIT_FAILURE);
-    // }
-    
+    p_ret = pthread_mutex_init(&mutex, NULL);
+    if (p_ret != 0)
+    {
+        syslog(LOG_ERR, "pthread_mutex_init failed with error: %s", strerror(p_ret));
+        exit(EXIT_FAILURE);
+    }
+
     printf("Creating pthread\n");
     //Cleanup thread for servicing all connection threads
-    p_ret=pthread_create(&thread, NULL, cleanup_func, &head );
-    if(p_ret!=0)
+    p_ret = pthread_create(&thread, NULL, cleanup_func, &head);
+    if (p_ret != 0)
+    {
+        syslog(LOG_ERR, "pthread_create failed with error: %s", strerror(p_ret));
+        exit(EXIT_FAILURE);
+    }
+
+    //time update thread for servicing all connection threads
+    p_ret = pthread_create(&thread, NULL, time_func, &head);
+    if (p_ret != 0)
     {
         syslog(LOG_ERR, "pthread_create failed with error: %s", strerror(p_ret));
         exit(EXIT_FAILURE);
@@ -359,7 +449,7 @@ int main(int argc, char *argv[])
 
         client_addr_size = sizeof(client_addr);
         int cfd = accept(sfd, (struct sockaddr *)&client_addr,
-                     &client_addr_size);
+                         &client_addr_size);
         if (cfd == -1)
         {
             syslog(LOG_ERR, "accept");
@@ -370,20 +460,18 @@ int main(int argc, char *argv[])
 
         inet_ntop(AF_INET, &(sa->sin_addr), ip4, INET_ADDRSTRLEN);
 
-        syslog(LOG_DEBUG, "Accepted connection from %s\n", ip4);
+        // syslog(LOG_DEBUG, "Accepted connection from %s\n", ip4);
 
-        node_t* new=_add_thread(&head, 0, cfd );
+        node_t *new = _add_thread(&head, 0, cfd, ip4);
 
-        p_ret=pthread_create(&thread, NULL, socket_func, new);
-        if(p_ret!=0)
+        p_ret = pthread_create(&thread, NULL, socket_func, new);
+        if (p_ret != 0)
         {
             syslog(LOG_ERR, "pthread_create failed with error: %s", strerror(p_ret));
             exit(EXIT_FAILURE);
         }
 
-        new->thread_id=thread;
-        
-
+        new->thread_id = (pthread_t)thread;
     }
     /* When no longer required, the socket pathname, MY_SOCK_PATH
               should be deleted using unlink(2) or remove(3). */

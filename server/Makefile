@@ -7,7 +7,7 @@ CFLAGS= -Wall -Werror -g -I. -lpthread
 LIBS= 
 
 HFILES= 
-CFILES= aesdsocket.c
+CFILES= aesdsocket.c queue.c
 
 SRCS= ${HFILES} ${CFILES}
 OBJS= ${CFILES:.c=.o}
@@ -18,7 +18,7 @@ clean:
 		-rm -f *.o *.d
 		-rm -f aesdsocket queue
 
-aesdsocket: aesdsocket.o
+aesdsocket: aesdsocket.o queue
 		$(CROSS_COMPILE)$(CC) $(CFLAGS) -o $@ $@.o 
 
 
@@ -28,7 +28,10 @@ aesdsocket.o: aesdsocket.c
 queue: queue.o
 		$(CROSS_COMPILE)$(CC) $(CFLAGS) -o $@ $@.o 
 
-
 queue.o:queue.c
 		$(CROSS_COMPILE)$(CC)  -c queue.c 
 
+depend:
+
+.c.o:
+	$(CC) $(CFLAGS) -c
