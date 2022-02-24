@@ -19,6 +19,8 @@
 #include <stdbool.h>
 #include <signal.h>
 #include <arpa/inet.h>
+#include <pthread.h>
+#include "queue.h"
 
 #define MY_SOCK_PATH "/var/tmp/aesdsocketdata"
 #define LISTEN_BACKLOG 50
@@ -27,8 +29,11 @@
 #define TRUE 1
 #define FALSE 0
 
-int sfd, cfd, fd;                                 // file descriptors
+int sfd, fd;                                 // file descriptors
 struct addrinfo *serverinfo = NULL, *temp = NULL; //points to results
+
+pthread_mutex_t mutex;
+
 
 void handler(int signo, siginfo_t *info, void *context)
 {
@@ -36,17 +41,16 @@ void handler(int signo, siginfo_t *info, void *context)
 
     int ret = EXIT_SUCCESS;
 
-    if ((cfd > -1))
-    {
-        if (shutdown(cfd, SHUT_RDWR))
-            ret = EXIT_FAILURE;
+    // if ((cfd > -1))
+    // {
+    //     if (shutdown(cfd, SHUT_RDWR))
+    //         ret = EXIT_FAILURE;
 
-        if (close(cfd))
-            ret = EXIT_FAILURE;
-
-    }
+    //     if (close(cfd))
+    //         ret = EXIT_FAILURE;
+    // }
     if (shutdown(sfd, SHUT_RDWR))
-            ret = EXIT_FAILURE;
+        ret = EXIT_FAILURE;
 
     if (close(sfd))
         ret = EXIT_FAILURE;
@@ -80,12 +84,141 @@ void signal_init()
     }
 }
 
+void* socket_func(void* arg)
+{
+    node_t* node = arg;
+    //Extracting a packet
+    int i;
+    char recv_buf[BUF_SIZE];
+    int recv_len = 0;
+    int recv_complete = FALSE;
+    int first_cycle = TRUE;
+    char *tx_buf = NULL, *temp_ptr = NULL;
+    int prev_size = BUF_SIZE, total_len = 0;
+    int bound = FALSE;         //flag for bind condition
+    char ip4[INET_ADDRSTRLEN]; // space to hold the IPv4 string
+
+    memset(&recv_buf, '\0', BUF_SIZE);
+
+    while (!recv_complete)
+    {
+        ssize_t recv_bytes;
+        recv_len = 0;
+
+        if ((recv_bytes = recv(node->cfd, &recv_buf, BUF_SIZE, 0)) == -1)
+        {
+            syslog(LOG_ERR, "recv\n");
+            exit(EXIT_FAILURE);
+        }
+        for (i = 0; i < recv_bytes; i++)
+        {
+            recv_len++;
+
+            if (recv_buf[i] == '\n')
+            {
+                recv_complete = TRUE;
+                break;
+            }
+        }
+
+        if (first_cycle)
+        {
+            tx_buf = (char *)malloc(recv_len + 1);
+
+            if (tx_buf == NULL)
+            {
+                syslog(LOG_ERR, "malloc");
+                exit(EXIT_FAILURE);
+            }
+
+            memset(tx_buf, '\0', recv_len);
+
+            first_cycle = FALSE;
+
+            total_len = recv_len;
+        }
+        else
+        {
+            // printf("Prev size: %d\n", prev_size);
+            if ((temp_ptr = realloc(tx_buf, prev_size + recv_len + 1)) == NULL)
+            {
+                syslog(LOG_ERR, "realloc");
+                exit(EXIT_FAILURE);
+            }
+            else
+            {
+                tx_buf = temp_ptr;
+                memset(tx_buf + prev_size, '\0', recv_len);
+                prev_size += recv_len;
+            }
+            total_len = prev_size;
+        }
+
+        strncat(tx_buf, recv_buf, recv_len); //copy present contents
+    }
+
+    //Locking before accessing file
+    pthread_mutex_lock(&mutex);
+
+    fd = open(MY_SOCK_PATH, O_CREAT | O_RDWR | O_APPEND, 0644);
+    if (fd == -1)
+    {
+        syslog(LOG_ERR, "open");
+        exit(EXIT_FAILURE);
+    }
+
+    syslog(LOG_DEBUG, "Opened file\n");
+
+    //Appending Packet to the file
+    lseek(fd, 0, SEEK_END);
+    int bytes = write(fd, tx_buf, total_len);
+    if (bytes == -1)
+    {
+        syslog(LOG_ERR, "write\n");
+        exit(EXIT_FAILURE);
+    }
+    // printf("Writing %d bytes\n", bytes);
+
+    lseek(fd, 0, SEEK_SET);
+
+    while ((bytes = read(fd, recv_buf, BUF_SIZE)) != 0)
+    {
+        //bytes = read(fd, recv_buf, BUF_SIZE);
+        if (bytes == -1)
+        {
+            syslog(LOG_ERR, "read\n");
+            exit(EXIT_FAILURE);
+        }
+        //printf("Reading %d bytes\n", bytes);
+        if (send(node->cfd, &recv_buf, bytes, 0) == -1)
+        {
+            syslog(LOG_ERR, "send\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    free(tx_buf);
+    close(node->cfd);
+    node->cfd = -1; //reset to indicate fd already clsoed (signal handler)
+    syslog(LOG_DEBUG, "Closed connection from %s\n", ip4);
+
+    //Unlock mutex after completing transactions with file and updating thread status
+    pthread_mutex_unlock(&mutex);
+
+    return NULL;
+}
+
+void* cleanup_func(void* head){
+    return NULL;
+
+}
+
 int main(int argc, char *argv[])
 {
     struct sockaddr server_addr, client_addr;
     struct addrinfo hints;
     socklen_t client_addr_size;
-    char recv_buf[BUF_SIZE];
+    //char recv_buf[BUF_SIZE];
     int bound = FALSE;         //flag for bind condition
     char ip4[INET_ADDRSTRLEN]; // space to hold the IPv4 string
 
@@ -98,7 +231,7 @@ int main(int argc, char *argv[])
     //open socket
 
     //Setting up sockaddr using getaddrinfo()
-    memset(&hints, 0, sizeof(hints)); 
+    memset(&hints, 0, sizeof(hints));
     hints.ai_flags = AI_PASSIVE;
 
     if (getaddrinfo(NULL, SERVER_PORT, &hints, &serverinfo) != 0)
@@ -152,16 +285,17 @@ int main(int argc, char *argv[])
     freeaddrinfo(serverinfo);
 
     //Daemonize if -d argument passed
-    int daemon_rec=-1;
+    int daemon_rec = -1;
     if (argc > 1)
     {
         if (!strncmp((char *)argv[1], "-d", 2))
         {
             syslog(LOG_DEBUG, "Running as Daemon\n");
-            daemon_rec=daemon(0, 0);
+            daemon_rec = daemon(0, 0);
         }
-        if(daemon_rec < 0){
-            syslog(LOG_ERR, "daemonize");    
+        if (daemon_rec < 0)
+        {
+            syslog(LOG_ERR, "daemonize");
             exit(EXIT_FAILURE);
         }
     }
@@ -174,14 +308,49 @@ int main(int argc, char *argv[])
 
     remove(MY_SOCK_PATH);
 
-    fd = open(MY_SOCK_PATH, O_CREAT | O_RDWR | O_APPEND, 0644);
-    if (fd == -1)
+
+    /*****************ASSIGNMENT 6 additions*****************/
+
+   /* 
+    *   QUEUE Initilialization
+    *
+    *   The queue is used to keep a track of threads created. 
+    *   Each node in the queue stores the following elements
+    *   1. thread_id
+    *   2. client_fd
+    *   3. thread_complete_flag
+    * 
+    *   The queue is updated and cleaned by a cleanup thread
+    * 
+    * */
+     // declare the head
+    head_t head;
+    TAILQ_INIT(&head); // initialize the head
+
+
+    //Threads
+
+    pthread_t thread;
+    int p_ret=-1;
+
+    //Global mutext required to access file
+    // pthread_mutex_init(&mutex, NULL);
+    // if(p_ret!=0)
+    // {
+    //     syslog(LOG_ERR, "pthread_mutex_init failed with error: %s", strerror(p_ret));
+    //     exit(EXIT_FAILURE);
+    // }
+    
+    printf("Creating pthread\n");
+    //Cleanup thread for servicing all connection threads
+    p_ret=pthread_create(&thread, NULL, cleanup_func, &head );
+    if(p_ret!=0)
     {
-        syslog(LOG_ERR, "open");
+        syslog(LOG_ERR, "pthread_create failed with error: %s", strerror(p_ret));
         exit(EXIT_FAILURE);
     }
 
-    syslog(LOG_DEBUG, "Opened file\n");
+    /*****************************************************/
 
     while (1)
     {
@@ -189,7 +358,7 @@ int main(int argc, char *argv[])
         /*Accept incoming connections one at a time */
 
         client_addr_size = sizeof(client_addr);
-        cfd = accept(sfd, (struct sockaddr *)&client_addr,
+        int cfd = accept(sfd, (struct sockaddr *)&client_addr,
                      &client_addr_size);
         if (cfd == -1)
         {
@@ -202,113 +371,19 @@ int main(int argc, char *argv[])
         inet_ntop(AF_INET, &(sa->sin_addr), ip4, INET_ADDRSTRLEN);
 
         syslog(LOG_DEBUG, "Accepted connection from %s\n", ip4);
-        /* 
-    *   Code to deal with incoming connection(s)... 
-    *
-    * 
-    * */
 
-        memset(&recv_buf, '\0', BUF_SIZE);
+        node_t* new=_add_thread(&head, 0, cfd );
 
-        //Extracting a packet
-        int i;
-        int recv_len = 0;
-        int recv_complete = FALSE;
-        int first_cycle = TRUE;
-        char *tx_buf = NULL, *temp_ptr = NULL;
-        int prev_size = BUF_SIZE, total_len = 0;
-
-        while (!recv_complete)
+        p_ret=pthread_create(&thread, NULL, socket_func, new);
+        if(p_ret!=0)
         {
-            ssize_t recv_bytes;
-            recv_len = 0;
-
-            if ((recv_bytes = recv(cfd, &recv_buf, BUF_SIZE, 0)) == -1)
-            {
-                syslog(LOG_ERR, "recv\n");
-                exit(EXIT_FAILURE);
-            }
-            for (i = 0; i < recv_bytes; i++)
-            {
-                recv_len++;
-
-                if (recv_buf[i] == '\n')
-                {
-                    recv_complete = TRUE;
-                    break;
-                }
-            }
-
-            if (first_cycle)
-            {
-                tx_buf = (char *)malloc(recv_len + 1);
-
-                if (tx_buf == NULL)
-                {
-                    syslog(LOG_ERR, "malloc");
-                    exit(EXIT_FAILURE);
-                }
-
-                memset(tx_buf, '\0', recv_len);
-
-                first_cycle = FALSE;
-
-                total_len = recv_len;
-            }
-            else
-            {
-                // printf("Prev size: %d\n", prev_size);
-                if ((temp_ptr = realloc(tx_buf, prev_size + recv_len + 1)) == NULL)
-                {
-                    syslog(LOG_ERR, "realloc");
-                    exit(EXIT_FAILURE);
-                }
-                else
-                {
-                    tx_buf = temp_ptr;
-                    memset(tx_buf + prev_size, '\0', recv_len);
-                    prev_size += recv_len;
-                }
-                total_len = prev_size;
-            }
-
-            strncat(tx_buf, recv_buf, recv_len); //copy present contents
-        }
-
-        // printf("Write packet to file\n");
-
-        //Appending Packet to the file
-        lseek(fd, 0, SEEK_END);
-        int bytes = write(fd, tx_buf, total_len);
-        if (bytes == -1)
-        {
-            syslog(LOG_ERR, "write\n");
+            syslog(LOG_ERR, "pthread_create failed with error: %s", strerror(p_ret));
             exit(EXIT_FAILURE);
         }
-        // printf("Writing %d bytes\n", bytes);
 
-        lseek(fd, 0, SEEK_SET);
+        new->thread_id=thread;
+        
 
-        while ((bytes = read(fd, recv_buf, BUF_SIZE)) != 0)
-        {
-            //bytes = read(fd, recv_buf, BUF_SIZE);
-            if (bytes == -1)
-            {
-                syslog(LOG_ERR, "read\n");
-                exit(EXIT_FAILURE);
-            }
-            //printf("Reading %d bytes\n", bytes);
-            if (send(cfd, &recv_buf, bytes, 0) == -1)
-            {
-                syslog(LOG_ERR, "send\n");
-                exit(EXIT_FAILURE);
-            }
-        }
-
-        free(tx_buf);
-        close(cfd);
-        cfd = -1;           //reset to indicate fd already clsoed (signal handler)
-        syslog(LOG_DEBUG, "Closed connection from %s\n", ip4);
     }
     /* When no longer required, the socket pathname, MY_SOCK_PATH
               should be deleted using unlink(2) or remove(3). */
