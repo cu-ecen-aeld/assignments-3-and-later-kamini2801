@@ -72,20 +72,6 @@ void _remove_thread(head_t * head, unsigned long thread_id)
     
 }
 
-void _remove_complete_thread(head_t * head)
-{
-    struct node * e = NULL;
-     TAILQ_FOREACH(e, head, nodes)
-    {
-        if(e->comp_flag)
-        {
-            TAILQ_REMOVE(head, e, nodes);
-            free(e);
-            break;
-        }
-    }
-    
-}
 
 // Prints the queue by traversing the queue forwards.
 void _print_queue(head_t * head)

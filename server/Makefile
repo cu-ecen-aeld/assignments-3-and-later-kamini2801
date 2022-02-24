@@ -12,26 +12,19 @@ CFILES= aesdsocket.c queue.c
 SRCS= ${HFILES} ${CFILES}
 OBJS= ${CFILES:.c=.o}
 
-all:    aesdsocket queue
+all:    aesdsocket queue.o
 
 clean:
 		-rm -f *.o *.d
-		-rm -f aesdsocket queue
+		-rm -f aesdsocket 
 
-aesdsocket: aesdsocket.o queue
-		$(CROSS_COMPILE)$(CC) $(CFLAGS) -o $@ $@.o 
+aesdsocket: aesdsocket.o queue.o
+		$(CROSS_COMPILE)$(CC) $(CFLAGS) -o $@ $@.o queue.o
 
 
 aesdsocket.o: aesdsocket.c
-		$(CROSS_COMPILE)$(CC)  -c aesdsocket.c 
+		$(CROSS_COMPILE)$(CC)  -c $^
 	
-queue: queue.o
-		$(CROSS_COMPILE)$(CC) $(CFLAGS) -o $@ $@.o 
 
 queue.o:queue.c
-		$(CROSS_COMPILE)$(CC)  -c queue.c 
-
-depend:
-
-.c.o:
-	$(CC) $(CFLAGS) -c
+		$(CROSS_COMPILE)$(CC) -c $^ 

@@ -35,20 +35,44 @@ struct addrinfo *serverinfo = NULL, *temp = NULL; //points to results
 
 pthread_mutex_t mutex;
 
+head_t head;
+
 void handler(int signo, siginfo_t *info, void *context)
 {
     syslog(LOG_DEBUG, "Caught signnal, exiting");
 
     int ret = EXIT_SUCCESS;
 
-    // if ((cfd > -1))
-    // {
-    //     if (shutdown(cfd, SHUT_RDWR))
-    //         ret = EXIT_FAILURE;
+    struct node *temp_thread = NULL;
+    TAILQ_FOREACH(temp_thread, &head, nodes)
+    {
+            //close fd if not done in cleanup
+            int close_ret=shutdown(temp_thread->cfd, SHUT_RDWR);
 
-    //     if (close(cfd))
-    //         ret = EXIT_FAILURE;
-    // }
+            if(close_ret)
+                syslog(LOG_ERR, "close client fd failed with error: %s", strerror(close_ret));
+
+            printf("Killing thread: %ld\n", temp_thread->thread_id);
+
+            //kill thread
+            int p_ret = -1;
+
+            p_ret = pthread_kill((pthread_t)temp_thread->thread_id, SIGKILL);
+            if (p_ret)
+            {
+                syslog(LOG_ERR, "pthread_kill failed with error: %s", strerror(p_ret));
+                exit(EXIT_FAILURE);
+            }
+
+            // //remove thread from list
+            // _remove_thread(&head, temp_thread->thread_id);
+
+        
+    }
+    _free_queue(&head);
+
+    pthread_mutex_destroy(&mutex);
+
     if (shutdown(sfd, SHUT_RDWR))
         ret = EXIT_FAILURE;
 
@@ -75,12 +99,12 @@ void signal_init()
     if (sigaction(SIGTERM, &act, NULL) == -1)
     {
         syslog(LOG_ERR, "Sigaction");
-        exit(EXIT_FAILURE);
+       _exit(EXIT_FAILURE);
     }
     if (sigaction(SIGINT, &act, NULL) == -1)
     {
         syslog(LOG_ERR, "Sigaction");
-        exit(EXIT_FAILURE);
+        _exit(EXIT_FAILURE);
     }
 }
 
@@ -109,7 +133,7 @@ void *socket_func(void *arg)
 
         if ((recv_bytes = recv(node->cfd, &recv_buf, BUF_SIZE, 0)) == -1)
         {
-            syslog(LOG_ERR, "recv\n");
+            syslog(LOG_ERR, "recv failed with error: %s", strerror(recv_bytes));
             exit(EXIT_FAILURE);
         }
         for (i = 0; i < recv_bytes; i++)
@@ -166,7 +190,7 @@ void *socket_func(void *arg)
     lseek(fd, 0, SEEK_END);
 
     int bytes = write(fd, tx_buf, total_len);
-    if (bytes == -1)
+    if (bytes < 0)
     {
         syslog(LOG_ERR, "write\n");
         exit(EXIT_FAILURE);
@@ -177,14 +201,14 @@ void *socket_func(void *arg)
 
     while ((bytes = read(fd, recv_buf, BUF_SIZE)) != 0)
     {
-        //bytes = read(fd, recv_buf, BUF_SIZE);
-        if (bytes == -1)
+        
+        if (bytes < 0)
         {
             syslog(LOG_ERR, "read\n");
             exit(EXIT_FAILURE);
         }
-        //printf("Reading %d bytes\n", bytes);
-        if (send(node->cfd, &recv_buf, bytes, 0) == -1)
+        
+        if (send(node->cfd, &recv_buf, bytes, 0) < 0)
         {
             syslog(LOG_ERR, "send\n");
             exit(EXIT_FAILURE);
@@ -192,11 +216,6 @@ void *socket_func(void *arg)
     }
 
     free(tx_buf);
-
-    close(node->cfd);
-    node->cfd = -1; //reset to indicate fd already clsoed (signal handler)
-
-    syslog(LOG_DEBUG, "Closed connection from %s\n", node->ip);
 
     node->comp_flag = 1;
 
@@ -217,12 +236,14 @@ void *cleanup_func(void *arg)
         {
             if (temp_thread->comp_flag)
             {
-                printf("Found dead thread: %ld\n", temp_thread->thread_id);
-                //close(temp_thread->cfd);
+                //printf("Found dead thread: %ld\n", temp_thread->thread_id);
+
+                // close client fds
+                close(temp_thread->cfd);
+                syslog(LOG_DEBUG, "Closed connection from %s\n", temp_thread->ip);
 
                 //join thread
                 int p_ret = -1;
-
                 p_ret = pthread_join((pthread_t)temp_thread->thread_id, NULL);
                 if (p_ret)
                 {
@@ -234,57 +255,58 @@ void *cleanup_func(void *arg)
                 TAILQ_REMOVE(head, temp_thread, nodes);
                 free(temp_thread);
 
+
                 break;
+
             }
         }
-        usleep(100);
+        usleep(10);
     }
     return NULL;
 }
 
 void *time_func(void *arg)
-{   
+{
 
-    while(1)
+    while (1)
     {
-    // get time
-    char outstr[200];
-    time_t t;
-    struct tm *tmp;
+        // get time
+        char outstr[200];
+        time_t t;
+        struct tm *tmp;
 
-    t = time(NULL);
-    tmp = localtime(&t);
-    if (tmp == NULL)
-    {
-        perror("localtime");
-        exit(EXIT_FAILURE);
-    }
+        t = time(NULL);
+        tmp = localtime(&t);
+        if (tmp == NULL)
+        {
+            perror("localtime");
+            exit(EXIT_FAILURE);
+        }
 
-    if (strftime(outstr, sizeof(outstr), "%a, %d %b %Y %T", tmp) == 0)
-    {
-        fprintf(stderr, "strftime returned 0");
-        exit(EXIT_FAILURE);
-    }
+        if (strftime(outstr, sizeof(outstr), "%a, %d %b %Y %T", tmp) == 0)
+        {
+            fprintf(stderr, "strftime returned 0");
+            exit(EXIT_FAILURE);
+        }
 
-    printf("Result string is \"%s\"\n", outstr);
+        //printf("Result string is \"%s\"\n", outstr);
 
-    strncat(outstr, "\n\0", 2);
+        strncat(outstr, "\n\0", 2);
 
-    printf("first strn complete\n");
-    //write
-    char outstr_complete[]="timestamp:";
-    strncat(outstr_complete, outstr, strlen(outstr));
+        //write
+        char outstr_complete[] = "timestamp:";
+        strncat(outstr_complete, outstr, strlen(outstr));
 
-    //Locking before accessing file
-    pthread_mutex_lock(&mutex);
+        //Locking before accessing file
+        pthread_mutex_lock(&mutex);
 
-    int bytes = write(fd, outstr_complete, strlen(outstr_complete));
+        int bytes = write(fd, outstr_complete, strlen(outstr_complete));
 
-    //Unlock mutex after completing transactions with file and updating thread status
-    pthread_mutex_unlock(&mutex);
+        //Unlock mutex after completing transactions with file and updating thread status
+        pthread_mutex_unlock(&mutex);
 
-    //sleeps
-    sleep(10);
+        //sleeps
+        sleep(10);
     }
 }
 
@@ -327,7 +349,7 @@ int main(int argc, char *argv[])
 
         if (sfd == -1)
         {
-            syslog(LOG_ERR, "socket\n");
+            syslog(LOG_ERR, "socket failed with error code: %s\n", strerror(sfd));
             exit(EXIT_FAILURE);
         }
         syslog(LOG_DEBUG, "Successfully opened Socket\n");
@@ -370,14 +392,14 @@ int main(int argc, char *argv[])
         }
         if (daemon_rec < 0)
         {
-            syslog(LOG_ERR, "daemonize");
+            syslog(LOG_ERR, "daemon failed with error code: %s\n", strerror(daemon_rec));
             exit(EXIT_FAILURE);
         }
     }
 
     if (listen(sfd, LISTEN_BACKLOG) == -1)
     {
-        syslog(LOG_ERR, "listen");
+        syslog(LOG_ERR, "listen\n");
         exit(EXIT_FAILURE);
     }
 
@@ -386,11 +408,11 @@ int main(int argc, char *argv[])
     fd = open(MY_SOCK_PATH, O_CREAT | O_RDWR | O_APPEND, 0644);
     if (fd == -1)
     {
-        syslog(LOG_ERR, "open");
+        syslog(LOG_ERR, "open failed with error code: %s\n", strerror(fd));
         exit(EXIT_FAILURE);
     }
 
-    syslog(LOG_DEBUG, "Opened file\n");
+    syslog(LOG_DEBUG, "Opened %s\n", MY_SOCK_PATH);
 
     /*****************ASSIGNMENT 6 additions*****************/
 
@@ -407,7 +429,7 @@ int main(int argc, char *argv[])
     * 
     * */
     // declare the head
-    head_t head;
+    
     TAILQ_INIT(&head); // initialize the head
 
     //Threads
@@ -415,9 +437,9 @@ int main(int argc, char *argv[])
     pthread_t thread;
     int p_ret = -1;
 
-    //Global mutext required to access file
+    //Global mutex required to access file
     p_ret = pthread_mutex_init(&mutex, NULL);
-    if (p_ret != 0)
+    if (p_ret)
     {
         syslog(LOG_ERR, "pthread_mutex_init failed with error: %s", strerror(p_ret));
         exit(EXIT_FAILURE);
@@ -426,21 +448,21 @@ int main(int argc, char *argv[])
     printf("Creating pthread\n");
     //Cleanup thread for servicing all connection threads
     p_ret = pthread_create(&thread, NULL, cleanup_func, &head);
-    if (p_ret != 0)
+    if (p_ret)
     {
         syslog(LOG_ERR, "pthread_create failed with error: %s", strerror(p_ret));
         exit(EXIT_FAILURE);
     }
 
-    //time update thread for servicing all connection threads
+    //Time update thread for servicing all connection threads
     p_ret = pthread_create(&thread, NULL, time_func, &head);
-    if (p_ret != 0)
+    if (p_ret)
     {
         syslog(LOG_ERR, "pthread_create failed with error: %s", strerror(p_ret));
         exit(EXIT_FAILURE);
     }
 
-    /*****************************************************/
+    /**************************************************************************/
 
     while (1)
     {
@@ -452,15 +474,15 @@ int main(int argc, char *argv[])
                          &client_addr_size);
         if (cfd == -1)
         {
-            syslog(LOG_ERR, "accept");
-            exit(EXIT_FAILURE);
+            syslog(LOG_ERR, "accept failed with error: %s\n", strerror(cfd));
+            raise(SIGTERM);
         }
 
         struct sockaddr_in *sa = (struct sockaddr_in *)&client_addr;
 
         inet_ntop(AF_INET, &(sa->sin_addr), ip4, INET_ADDRSTRLEN);
 
-        // syslog(LOG_DEBUG, "Accepted connection from %s\n", ip4);
+        //Spawning new thread for connection handling
 
         node_t *new = _add_thread(&head, 0, cfd, ip4);
 
@@ -473,7 +495,6 @@ int main(int argc, char *argv[])
 
         new->thread_id = (pthread_t)thread;
     }
-    /* When no longer required, the socket pathname, MY_SOCK_PATH
-              should be deleted using unlink(2) or remove(3). */
+
     raise(SIGTERM);
 }
