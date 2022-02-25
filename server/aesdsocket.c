@@ -291,11 +291,14 @@ void *time_func(void *arg)
 
         //printf("Result string is \"%s\"\n", outstr);
 
-        strncat(outstr, "\n\0", 2);
+        //strncat(outstr, "\n\0", 2);
 
         //write
-        char outstr_complete[] = "timestamp:";
+        char outstr_complete[100];
+        strcpy(outstr_complete, "timestamp:\0");
         strncat(outstr_complete, outstr, strlen(outstr));
+
+        strcat(outstr_complete, "\n");
 
         //Locking before accessing file
         pthread_mutex_lock(&mutex);
