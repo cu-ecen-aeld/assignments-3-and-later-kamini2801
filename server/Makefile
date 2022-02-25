@@ -3,7 +3,7 @@ LIB_DIRS =
 CC=gcc
 
 CDEFS= 
-CFLAGS= -Wall -Werror -g -I. -lpthread
+CFLAGS= -Wall -Werror -g -I. -pthread
 LIBS= 
 
 HFILES= 
