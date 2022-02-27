@@ -21,12 +21,14 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <time.h>
+#include <poll.h>
 #include "queue.h"
 
 #define MY_SOCK_PATH "/var/tmp/aesdsocketdata"
 #define LISTEN_BACKLOG 50
 #define SERVER_PORT "9000"
 #define BUF_SIZE 1024
+#define NO_OF_FDS 1
 #define TRUE 1
 #define FALSE 0
 
@@ -37,49 +39,53 @@ pthread_mutex_t mutex;
 
 head_t head;
 
+uint8_t sig_ret = FALSE;
+
 void handler(int signo, siginfo_t *info, void *context)
 {
-    syslog(LOG_DEBUG, "Caught signnal, exiting");
+    syslog(LOG_DEBUG, "Caught signal, exiting");
 
-    int ret = EXIT_SUCCESS;
+    sig_ret = TRUE;
 
-    struct node *temp_thread = NULL;
-    TAILQ_FOREACH(temp_thread, &head, nodes)
-    {
-        //close fd if not done in cleanup
-        int close_ret = shutdown(temp_thread->cfd, SHUT_RDWR);
-        if (close_ret)
-            syslog(LOG_ERR, "close client fd failed with error: %s", strerror(close_ret));
+    return;
 
-        // printf("Killing thread: %ld\n", temp_thread->thread_id);
+    // struct node *temp_thread = NULL;
+    // TAILQ_FOREACH(temp_thread, &head, nodes)
+    // {
+    //     //close fd if not done in cleanup
+    //     int close_ret = shutdown(temp_thread->cfd, SHUT_RDWR);
+    //     if (close_ret)
+    //         syslog(LOG_ERR, "close client fd failed with error: %s", strerror(close_ret));
 
-        //kill thread
-        int p_ret = -1;
+    //     // printf("Killing thread: %ld\n", temp_thread->thread_id);
 
-        p_ret = pthread_kill((pthread_t)temp_thread->thread_id, SIGKILL);
-        if (p_ret)
-        {
-            syslog(LOG_ERR, "pthread_kill failed with error: %s", strerror(p_ret));
-            exit(EXIT_FAILURE);
-        }
+    //     //kill thread
+    //     int p_ret = -1;
 
-    }
-    _free_queue(&head);
+    //     p_ret = pthread_kill((pthread_t)temp_thread->thread_id, SIGKILL);
+    //     if (p_ret)
+    //     {
+    //         syslog(LOG_ERR, "pthread_kill failed with error: %s", strerror(p_ret));
+    //         exit(EXIT_FAILURE);
+    //     }
 
-    pthread_mutex_destroy(&mutex);
+    // }
+    // _free_queue(&head);
 
-    if (shutdown(sfd, SHUT_RDWR))
-        ret = EXIT_FAILURE;
+    // pthread_mutex_destroy(&mutex);
 
-    if (close(fd))
-        ret = EXIT_FAILURE;
+    // if (shutdown(sfd, SHUT_RDWR))
+    //     ret = EXIT_FAILURE;
 
-    if (unlink(MY_SOCK_PATH))
-        ret = EXIT_FAILURE;
+    // if (close(fd))
+    //     ret = EXIT_FAILURE;
 
-    closelog();
+    // if (unlink(MY_SOCK_PATH))
+    //     ret = EXIT_FAILURE;
 
-    _exit(ret);
+    // closelog();
+
+    // _exit(ret);
 }
 
 void signal_init()
@@ -317,12 +323,55 @@ void *time_func(void *arg)
     }
 }
 
+int cleanup_on_exit()
+{
+
+    int ret = EXIT_FAILURE;
+
+    struct node *temp_thread = NULL;
+    TAILQ_FOREACH(temp_thread, &head, nodes)
+    {
+        //close fd if not done in cleanup
+        int close_ret = shutdown(temp_thread->cfd, SHUT_RDWR);
+        if (close_ret)
+            syslog(LOG_ERR, "close client fd failed with error: %s", strerror(close_ret));
+
+        // printf("Killing thread: %ld\n", temp_thread->thread_id);
+
+        //kill thread
+        int p_ret = -1;
+
+        p_ret = pthread_kill((pthread_t)temp_thread->thread_id, SIGKILL);
+        if (p_ret)
+        {
+            syslog(LOG_ERR, "pthread_kill failed with error: %s", strerror(p_ret));
+            exit(EXIT_FAILURE);
+        }
+    }
+    _free_queue(&head);
+
+    pthread_mutex_destroy(&mutex);
+
+    if (shutdown(sfd, SHUT_RDWR))
+        ret = EXIT_FAILURE;
+
+    if (close(fd))
+        ret = EXIT_FAILURE;
+
+    if (unlink(MY_SOCK_PATH))
+        ret = EXIT_FAILURE;
+
+    closelog();
+
+    return ret;
+}
+
 int main(int argc, char *argv[])
 {
     struct sockaddr server_addr, client_addr;
     struct addrinfo hints;
     socklen_t client_addr_size;
-    //char recv_buf[BUF_SIZE];
+    int cfd = 0;
     int bound = FALSE;         //flag for bind condition
     char ip4[INET_ADDRSTRLEN]; // space to hold the IPv4 string
 
@@ -469,38 +518,76 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
+    short events = POLL_IN;
+    short revents = 0;
+    struct pollfd pfd = {sfd, events, revents};
+    int time_out = 1;
+
     /**************************************************************************/
 
     while (1)
     {
 
-        /*Accept incoming connections one at a time */
+        int poll_ret = poll(&pfd, NO_OF_FDS, time_out);
 
-        client_addr_size = sizeof(client_addr);
-        int cfd = accept(sfd, (struct sockaddr *)&client_addr,
+        if (poll_ret < 0)
+        {   
+            if(sig_ret)
+                poll_ret = 0;
+            else   
+            {
+                syslog(LOG_ERR, "poll failed with %s\n", strerror(poll_ret));
+                cleanup_on_exit();
+                _exit(EXIT_FAILURE);
+            }
+        }
+
+        else if (poll_ret == 0)
+        {
+
+            if (sig_ret)
+            {
+                if (cleanup_on_exit())
+                {
+                    syslog(LOG_DEBUG, "successful cleanup on exit\n");
+                }
+                else
+                    syslog(LOG_DEBUG, "Unsuccessful cleanup on exit\n");
+
+                _exit(EXIT_SUCCESS);
+            }
+        }
+
+        else
+        {
+            /*Accept incoming connections one at a time */
+
+            client_addr_size = sizeof(client_addr);
+            cfd = accept(sfd, (struct sockaddr *)&client_addr,
                          &client_addr_size);
-        if (cfd == -1)
-        {
-            syslog(LOG_ERR, "accept failed with error: %s\n", strerror(cfd));
-            raise(SIGTERM);
+            if (cfd == -1)
+            {
+                syslog(LOG_ERR, "accept failed with error: %s\n", strerror(cfd));
+                raise(SIGTERM);
+            }
+
+            struct sockaddr_in *sa = (struct sockaddr_in *)&client_addr;
+
+            inet_ntop(AF_INET, &(sa->sin_addr), ip4, INET_ADDRSTRLEN);
+
+            //Spawning new thread for connection handling
+
+            node_t *new = _add_thread(&head, 0, cfd, ip4);
+
+            p_ret = pthread_create(&thread, NULL, socket_func, new);
+            if (p_ret != 0)
+            {
+                syslog(LOG_ERR, "pthread_create failed with error: %s", strerror(p_ret));
+                exit(EXIT_FAILURE);
+            }
+
+            new->thread_id = (pthread_t)thread;
         }
-
-        struct sockaddr_in *sa = (struct sockaddr_in *)&client_addr;
-
-        inet_ntop(AF_INET, &(sa->sin_addr), ip4, INET_ADDRSTRLEN);
-
-        //Spawning new thread for connection handling
-
-        node_t *new = _add_thread(&head, 0, cfd, ip4);
-
-        p_ret = pthread_create(&thread, NULL, socket_func, new);
-        if (p_ret != 0)
-        {
-            syslog(LOG_ERR, "pthread_create failed with error: %s", strerror(p_ret));
-            exit(EXIT_FAILURE);
-        }
-
-        new->thread_id = (pthread_t)thread;
     }
 
     raise(SIGTERM);
