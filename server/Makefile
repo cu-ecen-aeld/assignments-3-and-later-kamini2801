@@ -3,7 +3,7 @@ LIB_DIRS =
 CC=gcc
 
 CDEFS= 
-CFLAGS= -O0 -g $(INCLUDE_DIRS) $(CDEFS)
+CFLAGS= -Wall -Werror
 LIBS= 
 
 HFILES= 
@@ -19,9 +19,9 @@ clean:
 		-rm -f aesdsocket
 
 aesdsocket: aesdsocket.o
-		$(CC) $(CFLAGS) -o $@ $@.o 
+		$(CROSS_COMPILE)$(CC) $(CFLAGS) -o $@ $@.o 
 
 
 aesdsocket.o: aesdsocket.c
-		$(CC)  -c aesdsocket.c
+		$(CROSS_COMPILE)$(CC)  -c aesdsocket.c
 
