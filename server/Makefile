@@ -1,27 +1,27 @@
-INCLUDE_DIRS =  
-LIB_DIRS = 
-CC=gcc
+ifeq ($(CC),)
+	CC = $(CROSS_COMPILE)gcc
+endif
+ifeq ($(CFLAGS),)
+	CFLAGS = -g -Wall -Werror -I. 
+endif
+ifeq ($(LDFLAGS),)
+	LDFLAGS = -pthread -lrt
+endif
 
-CDEFS= 
-CFLAGS= -Wall -Werror
-LIBS= 
-
-HFILES= 
-CFILES= aesdsocket.c
-
-SRCS= ${HFILES} ${CFILES}
-OBJS= ${CFILES:.c=.o}
-
-all:    aesdsocket
+all:    aesdsocket queue.o
 
 clean:
 		-rm -f *.o *.d
-		-rm -f aesdsocket
+		-rm -f aesdsocket 
 
-aesdsocket: aesdsocket.o
-		$(CROSS_COMPILE)$(CC) $(CFLAGS) -o $@ $@.o 
+aesdsocket: aesdsocket.o queue.o
+		$(CC) $(CFLAGS) $^ -o $@ $(INCLUDES) $(LDFLAGS)
+
 
 
 aesdsocket.o: aesdsocket.c
-		$(CROSS_COMPILE)$(CC)  -c aesdsocket.c
+		$(CROSS_COMPILE)$(CC)  -c $^
+	
 
+queue.o:queue.c
+		$(CROSS_COMPILE)$(CC) -c $^ 
