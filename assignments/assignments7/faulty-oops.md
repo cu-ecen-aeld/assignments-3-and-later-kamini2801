@@ -1,7 +1,5 @@
-#Kernel Dump 
+# Kernel Dump 
  
-##Command: echo “hello_world” > /dev/faulty   
-
 Unable to handle kernel NULL pointer dereference at virtual address 0000000000000000   
 Mem abort info:   
   ESR = 0x96000046   
@@ -47,3 +45,19 @@ Call trace:
  el0_sync+0x174/0x180   
 Code: d2800001 d2800000 d503233f d50323bf (b900003f)    
 ---[ end trace ec973d7608f8410e ]---   
+
+## Analysis
+
+The kernel dump helps analyse trace the source of the kernel oops. 
+
+The first line explains the causes of the occurence, in this case, deferencing a NULL pointer.   
+The following lines reflect the status of the machine as well as the memory during the fault occurence. 
+Line <code> Internal error: Oops: 96000046 [#1] SMP  </code> displays the error code which can be analsyed. the <code> [#1] </code> symbolises the number of times
+the oops fault occured.
+
+<code> CPU: 0 PID: 152 Comm: sh Tainted: G </code> points to the CPU core in use, the process ID and The Tainted flag points to G which indicates proprietary module has been loaded.
+
+The status of the hardware is reflected in the next few lines. The contents of registers of the arm aarch-64 architecture are included in the dump.  
+
+The call trace can be used to find the exact line of code which results in the kernel panic. In the line <code> faulty_write+0x10/0x20 [faulty] </code> 0x10 is the offset from the function pointer. The line <code> Code: d2800001 d2800000 d503233f d50323bf (b900003f) </code>
+is a hex-dump of the section of machine code that was being run at the time the Oops occurred.  
