@@ -1,4 +1,4 @@
-/**
+ /**
  * @file aesdchar.c
  * @brief Functions and data related to the AESD char driver implementation
  *
@@ -31,6 +31,8 @@ int aesd_open(struct inode *inode, struct file *filp)
 	PDEBUG("open");
 	/**
 	 * TODO: handle open
+	 * set filp->private_data with aesd_dev device struct
+	 * inode->i_cdev with container_of ------- locate within aesd_dev
 	 */
 	return 0;
 }
@@ -51,6 +53,29 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 	PDEBUG("read %zu bytes with offset %lld",count,*f_pos);
 	/**
 	 * TODO: handle read
+	 * privatee_data member has aesd_dev
+	 * use copy_to_user to access buffer
+	 * count -> max number of writes
+	 * f_pos pointer to the read offset which has value char_offset (assignment 7)
+	 * 
+	 * if(return == count) req number of bytes transferred
+	 * 
+	 * if(0 < return < count) partialread
+	 * 
+	 * if(return == 0) EOF
+	 * 
+	 * if(return < 0) Error  ERESTARTSYS. EINTR, EFAULT
+	 * 
+	 * 
+	 * 
+	 * PARTIAL READ RULE:
+	 *  
+	 * Returns a single aesd_circular_buffer_entry and incerement file
+	 * offset 
+	 * 
+	 * User application can retry read to read all the data until all 
+	 * available data is read  
+	 * (implementation handled by  hhigher level funcs like fread and cat)
 	 */
 	return retval;
 }
@@ -62,6 +87,17 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 	PDEBUG("write %zu bytes with offset %lld",count,*f_pos);
 	/**
 	 * TODO: handle write
+	 * 
+	 * ignore f_pos
+	 * 
+	 * if(return == count) req number of bytes written
+	 * 
+	 * if(0 < return < count partial write
+	 * 
+	 * if(return == 0) nothing written
+	 * 
+	 * if(return < 0) Error  ERESTARTSYS. EINTR, EFAULT
+	 * 
 	 */
 	return retval;
 }
@@ -104,6 +140,7 @@ int aesd_init_module(void)
 
 	/**
 	 * TODO: initialize the AESD specific portion of the device
+	 * Initialize members of the structure (locking)
 	 */
 
 	result = aesd_setup_cdev(&aesd_device);
@@ -123,6 +160,9 @@ void aesd_cleanup_module(void)
 
 	/**
 	 * TODO: cleanup AESD specific poritions here as necessary
+	 * 
+	 * free memeory
+	 * unlock
 	 */
 
 	unregister_chrdev_region(devno, 1);
