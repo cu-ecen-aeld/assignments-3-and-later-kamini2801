@@ -10,6 +10,8 @@
 
 #ifdef __KERNEL__
 #include <linux/string.h>
+#include <linux/init.h>
+#include <linux/module.h>
 #else
 #include <string.h>
 #include <stdio.h>
@@ -33,19 +35,23 @@ struct aesd_buffer_entry
 {
     /**
     * TODO: implement per description
-    */
+    */ 
 
    struct  aesd_buffer_entry temp;
+   uint8_t len = 10;
+   int i;
+   uint8_t index = 0;
 
    // calculate  length of circular buffer
     // uint8_t  len = ((buffer->in_offs - buffer->out_offs) & (AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED - 1));
 
-    uint8_t len = 10;
+    
    if( !len ) len = AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; //full 
 
-    uint8_t index = buffer->out_offs;
+    index = buffer->out_offs;
    //start parsing at out_offs 
-   for( int i = 0; i < len; i++)
+   
+   for( i = 0; i < len; i++)
    {
        
     temp = buffer->entry[index];
@@ -127,12 +133,14 @@ void aesd_circular_buffer_init(struct aesd_circular_buffer *buffer)
 void print_buffer(struct aesd_circular_buffer *buffer){
 
     struct  aesd_buffer_entry temp;
-    printf("\n\n PRINT DEBUG \n\n");
+    int i;
+    printk(KERN_ALERT "\n\n PRINT DEBUG \n\n");
 
-    for( int i=0; i< AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++)
+    
+    for( i=0; i< AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++)
     {
         temp = buffer->entry[i];
         
-        printf("%s \n", temp.buffptr);
+        printk(KERN_ALERT "%s \n", temp.buffptr);
     }
 }
