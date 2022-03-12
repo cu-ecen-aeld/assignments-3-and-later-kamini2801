@@ -33,16 +33,27 @@ MODULE_LICENSE("Dual BSD/GPL");
 
 struct aesd_dev aesd_device;
 
-struct aesd_circular_buffer history_buffer;
+//struct aesd_aesd_device.circular_buffer aesd_device.circular_buffer;
 
 int aesd_open(struct inode *inode, struct file *filp)
 {
+	struct aesd_dev *dev;
+
 	PDEBUG("open");
 	/**
 	 * TODO: handle open
 	 * set filp->private_data with aesd_dev device struct
 	 * inode->i_cdev with container_of ------- locate within aesd_dev
 	 */
+
+	dev = container_of(inode->i_cdev, struct aesd_dev, cdev);
+	filp->private_data = dev;
+
+	// if ((filp->f_flags) & O_ACCMODE) == O_WRONGLY)
+	// {
+
+	// }
+	PDEBUG("open end");
 	return 0;
 }
 
@@ -60,27 +71,22 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 {
 	ssize_t no_of_bytes_read = 0;
 	size_t *entry_offset_byte_rtn;
+	//struct aesd_buffer_device->entry* entry;
+
+	struct aesd_dev* device;
 	struct aesd_buffer_entry* entry;
-	PDEBUG("read %zu bytes with offset %lld",count,*f_pos);
 	
-	entry = (struct aesd_buffer_entry*)kmalloc(sizeof(struct aesd_buffer_entry*), GFP_KERNEL);
+	PDEBUG("read %zu bytes with offset %lld",count,*f_pos);
+	device = (struct aesd_dev*)filp->private_data;
+	entry= device->entry;
+	
 	/**
 	 * TODO: handle read
 	 * privatee_data member has aesd_dev
 	 * use copy_to_user to access buffer
 	 * count -> max number of writes0
 	 * f_pos pointer to the read offset which has value char_offset (assignment 7)
-	 * 
-	 * if(return == count) req number of bytes transferred
-	 * 
-	 * if(0 < return < count) partialread
-	 * 
-	 * if(return == 0) EOF
-	 * 
-	 * if(return < 0) Error  ERESTARTSYS. EINTR, EFAULT
-	 * 
-	 * 
-	 * 
+	 *
 	 * PARTIAL READ RULE:
 	 *  
 	 * Returns a single aesd_circular_buffer_entry and incerement file
@@ -90,27 +96,26 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 	 * available data is read  
 	 * (implementation handled by  hhigher level funcs like fread and cat)
 	 */
-	entry = (struct aesd_buffer_entry*)kmalloc(sizeof(struct aesd_buffer_entry), GFP_KERNEL);
-	if (entry == NULL)
-	{
-		printk(KERN_ALERT "kmalloc failed\n");
-		kfree(entry);
-		return ENOMEM;
-	}
+	// entry = (struct aesd_buffer_entry*)kmalloc(sizeof(struct aesd_buffer_entry), GFP_KERNEL);
+	// if (entry == NULL)
+	// {
+	// 	printk(KERN_ALERT "kmalloc failed\n");
+	// 	return ENOMEM;
+	// }
 
-	entry = aesd_circular_buffer_find_entry_offset_for_fpos(&history_buffer, *f_pos, entry_offset_byte_rtn);
-	//////////no_of_bytes_read = entry->size;
+	entry = aesd_circular_buffer_find_entry_offset_for_fpos(&aesd_device.circular_buffer, *f_pos, entry_offset_byte_rtn);
+	//////////no_of_bytes_read = device->entry->size;
 	if( entry == NULL )
 	{
-		kfree(entry);
+		//kfree(entry);
 		return EFAULT;
 	}
 	
-	if( entry->size < count )
+	if( (entry->size) < count )
 	{
 		if(copy_to_user( buf, entry->buffptr, no_of_bytes_read )!= 0)
 		{
-			kfree(entry);
+			//kfree(entry);
 			return EFAULT;
 		}
 		no_of_bytes_read = entry->size;
@@ -119,13 +124,14 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 	{
 		if(copy_to_user( buf, entry->buffptr, count )!= 0)
 		{
-			kfree(entry);
+			//kfree(entry);
 			return EFAULT;
 		}
 		no_of_bytes_read = count;
 	}
 
-	kfree(entry);
+	//kfree(entry);
+	PDEBUG("Read end\n");
 	return no_of_bytes_read;
 }
 
@@ -133,90 +139,77 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 loff_t *f_pos)
 {
 	
-	static uint8_t write_pending;
-	static size_t total_count;
+	// static uint8_t write_pending;
+	// static size_t device->total_count;
 	//static char * temp;
+	//static struct aesd_buffer_entry* entry;
+	
+	struct aesd_dev* device;
 	struct aesd_buffer_entry* entry;
-	//ssize_t retval = -ENOMEM;
+	ssize_t retval = -ENOMEM;
+	
 	PDEBUG("write %zu bytes with offset %lld",count,*f_pos);
 
-	
-	entry = (struct aesd_buffer_entry*)kmalloc(sizeof(struct aesd_buffer_entry), GFP_KERNEL);
-	if (entry == NULL)
-	{
-		printk(KERN_ALERT "kmalloc failed\n");
-		return ENOMEM;
-	}
-	total_count += count;
-	if(!write_pending)
+	device = (struct aesd_dev*)filp->private_data;
+	entry = device->entry;
+
+	// entry = (struct aesd_buffer_entry*)kmalloc(sizeof(struct aesd_buffer_entry), GFP_KERNEL);
+	// if (entry == NULL)
+	// {
+	// 	printk(KERN_ALERT "kmalloc failed\n");
+	// 	return -ENOMEM;
+	// }
+	device->total_count += count;
+	if(!device->write_pending)
 	{
 		entry->buffptr = (char*)kmalloc(count, GFP_KERNEL);
 		if (entry->buffptr == NULL)
 		{
 			printk(KERN_ALERT "kmalloc failed\n");
-			kfree(entry);
-			return ENOMEM;
+			//kfree(entry);
+			return -ENOMEM;
 		}
 		if(copy_from_user(entry->buffptr, buf, count)!=0)
 		{
-			kfree(entry);
-			return EFAULT;
+			//kfree(entry);
+			return -EFAULT;
 		}
 		strncpy(entry->buffptr + count, "\0", 1);
 	}	
 	else
 	{
-		entry->buffptr = (char*)krealloc(entry->buffptr, total_count, GFP_KERNEL);
+		entry->buffptr = (char*)krealloc(entry->buffptr, device->total_count, GFP_KERNEL);
 		if (entry->buffptr == NULL)
 		{
 			printk(KERN_ALERT "krealloc failed\n");
-			kfree(entry);
-			return ENOMEM;
+			//kfree(entry);
+			return -ENOMEM;
 		}
-		if(copy_from_user(entry->buffptr + total_count - count, buf, count)!=0)
+		if(copy_from_user(entry->buffptr + device->total_count - count, buf, count)!=0)
 		{
-			kfree(entry);
-			return EFAULT;
+			//kfree(entry);
+			return -EFAULT;
 		}
-		strncpy(entry->buffptr + total_count, "\0", 1);
+		strncpy(entry->buffptr + device->total_count, "\0", 1);
 	}
 
 	if(strchr(entry->buffptr, '\n') != NULL)
 	{
-		//entry = (struct aesd_buffer_entry*)kmalloc(sizeof(struct aesd_buffer_entry));
+		//device->entry = (struct aesd_buffer_entry*)kmalloc(sizeof(struct aesd_buffer_entry));
 		//entry->buffptr = temp;
-		entry->size = total_count;
-		aesd_circular_buffer_add_entry(&history_buffer, entry);
-		total_count = 0;
-		write_pending = FALSE;
+		entry->size = device->total_count;
+		aesd_circular_buffer_add_entry(&device->circular_buffer, entry);
+		retval = device->total_count; 
+		device->total_count = 0;
+		device->write_pending = FALSE;
 	}
 	else
 	{
-		write_pending = TRUE;
+		device->write_pending = TRUE;
 	}
 
-	/**
-	 * TODO: handle write
-	 * 
-	 * ignore f_pos
-	 * 
-	 
-	 * if(!flag)
-
-	 * 
-	 * 
-	 * else: 
-	 * 
-	 * if(return == count) req number of bytes written
-	 * 
-	 * if(0 < return < count partial write
-	 * 
-	 * if(return == 0) nothing written
-	 * 
-	 * if(return < 0) Error  ERESTARTSYS. EINTR, EFAULT
-	 * 
-	 */
-	return total_count;
+	PDEBUG("Write end\n");
+	return retval;
 }
 struct file_operations aesd_fops = {
 	.owner =    THIS_MODULE,
@@ -264,6 +257,14 @@ int aesd_init_module(void)
 	 * TODO: initialize the AESD specific portion of the device
 	 * Initialize members of the structure (locking)
 	 */
+	
+	//Initiliaze circular buffer
+	aesd_circular_buffer_init(&aesd_device.circular_buffer);
+
+	aesd_device.entry = kmalloc(sizeof(struct aesd_buffer_entry), GFP_KERNEL);
+
+	aesd_device.total_count = 0;
+	aesd_device.write_pending = FALSE;
 
 	result = aesd_setup_cdev(&aesd_device);
 
