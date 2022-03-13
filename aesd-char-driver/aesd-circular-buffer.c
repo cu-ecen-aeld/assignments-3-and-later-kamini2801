@@ -38,20 +38,20 @@ struct aesd_buffer_entry
     */ 
 
    struct  aesd_buffer_entry temp;
-   uint8_t len = 10;
+   uint8_t len = AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
    int i;
    uint8_t index = 0;
 
-   // calculate  length of circular buffer
+    // calculate  length of circular buffer
     // uint8_t  len = ((buffer->in_offs - buffer->out_offs) & (AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED - 1));
 
     
-   if( !len ) len = AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; //full 
+   // if( !len ) len = AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; //full 
 
     index = buffer->out_offs;
    //start parsing at out_offs 
    
-   for( i = 0; i < len; i++)
+   for(i = 0; i < len; i++)
    {
        
     temp = buffer->entry[index];
@@ -88,11 +88,20 @@ struct aesd_buffer_entry
 * Any necessary locking must be handled by the caller
 * Any memory referenced in @param add_entry must be allocated by and/or must have a lifetime managed by the caller.
 */
-void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
+struct aesd_buffer_entry 
+aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
 {
     /**
     * TODO: implement per description 
     */
+   struct aesd_buffer_entry ret = {NULL, 0};
+
+    //check if full flag -> increment out_off
+   if( buffer->full ) 
+    {
+        ret = buffer->entry[buffer->out_offs];
+        buffer->out_offs++;
+    }
 
     buffer->entry[buffer->in_offs] = *add_entry;   
      
@@ -102,15 +111,13 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
    if(buffer->in_offs >= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED) 
         buffer->in_offs = 0;
 
-   //check if full flag -> increment out_off
-   if( buffer->full ) buffer->out_offs++;
-
-   if(buffer->out_offs >= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED) 
+    if(buffer->out_offs >= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED) 
         buffer->out_offs = 0;       // roll back as per circular buffer
 
    // if in_off == out_off -> set full flag
    if(buffer->in_offs == buffer->out_offs) buffer->full = true;
 
+    return ret;
 }
 
 /**
@@ -141,6 +148,6 @@ void print_buffer(struct aesd_circular_buffer *buffer){
     {
         temp = buffer->entry[i];
         
-        printk(KERN_ALERT "%s \n", temp.buffptr);
+        printk(KERN_ALERT "%p: %s\n", temp.buffptr, temp.buffptr);
     }
 }

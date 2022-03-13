@@ -103,7 +103,7 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 	// 	return ENOMEM;
 	// }
 
-	entry = aesd_circular_buffer_find_entry_offset_for_fpos(&aesd_device.circular_buffer, *f_pos, entry_offset_byte_rtn);
+	entry = aesd_circular_buffer_find_entry_offset_for_fpos(&device->circular_buffer, *f_pos, entry_offset_byte_rtn);
 	//////////no_of_bytes_read = device->entry->size;
 	if( entry == NULL )
 	{
@@ -139,29 +139,21 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 loff_t *f_pos)
 {
 	
-	// static uint8_t write_pending;
-	// static size_t device->total_count;
-	//static char * temp;
-	//static struct aesd_buffer_entry* entry;
-	
-	struct aesd_dev* device;
-	struct aesd_buffer_entry* entry;
+	struct aesd_dev* device = NULL;
+	struct aesd_buffer_entry* entry = NULL;
+	struct aesd_buffer_entry ret_ptr;
 	ssize_t retval = -ENOMEM;
+	int i = 0;
 	
 	PDEBUG("write %zu bytes with offset %lld",count,*f_pos);
 
 	device = (struct aesd_dev*)filp->private_data;
 	entry = device->entry;
 
-	// entry = (struct aesd_buffer_entry*)kmalloc(sizeof(struct aesd_buffer_entry), GFP_KERNEL);
-	// if (entry == NULL)
-	// {
-	// 	printk(KERN_ALERT "kmalloc failed\n");
-	// 	return -ENOMEM;
-	// }
 	device->total_count += count;
 	if(!device->write_pending)
 	{
+		PDEBUG(KERN_ALERT "first append\n");
 		entry->buffptr = (char*)kmalloc(count, GFP_KERNEL);
 		if (entry->buffptr == NULL)
 		{
@@ -169,12 +161,13 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 			//kfree(entry);
 			return -ENOMEM;
 		}
+		printk(KERN_ALERT "malloced: %p\n", entry->buffptr);
 		if(copy_from_user(entry->buffptr, buf, count)!=0)
 		{
 			//kfree(entry);
 			return -EFAULT;
 		}
-		strncpy(entry->buffptr + count, "\0", 1);
+		//strncpy(entry->buffptr + count, "\0", 1);
 	}	
 	else
 	{
@@ -190,24 +183,43 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 			//kfree(entry);
 			return -EFAULT;
 		}
-		strncpy(entry->buffptr + device->total_count, "\0", 1);
+		//strncpy(entry->buffptr + device->total_count, "\0", 1);
 	}
 
-	if(strchr(entry->buffptr, '\n') != NULL)
+
+
+	//if(strchr(entry->buffptr, '\n') != NULL)
+
+	/**
+	 * TODO: optimize index
+	 */
+	for ( i=0; i < device->total_count; i++)
 	{
 		//device->entry = (struct aesd_buffer_entry*)kmalloc(sizeof(struct aesd_buffer_entry));
 		//entry->buffptr = temp;
-		entry->size = device->total_count;
-		aesd_circular_buffer_add_entry(&device->circular_buffer, entry);
-		retval = device->total_count; 
-		device->total_count = 0;
-		device->write_pending = FALSE;
+		//PDEBUG("char found: %c\n", entry->buffptr[i]);
+		if(entry->buffptr[i] == '\n')
+		{
+			//entry->size = device->total_count;
+			entry->size = i;
+			ret_ptr = aesd_circular_buffer_add_entry(&device->circular_buffer, entry);
+			if(ret_ptr.buffptr != NULL)
+			{
+				printk(KERN_ALERT "Freed %p\n", ret_ptr.buffptr);
+				kfree(ret_ptr.buffptr);
+			}		
+			retval = device->total_count; 
+			device->total_count = 0;
+			device->write_pending = FALSE;
+			break;
+		}
+		else
+		{
+			device->write_pending = TRUE;
+		}
 	}
-	else
-	{
-		device->write_pending = TRUE;
-	}
-
+	
+	print_buffer(&device->circular_buffer);
 	PDEBUG("Write end\n");
 	return retval;
 }
