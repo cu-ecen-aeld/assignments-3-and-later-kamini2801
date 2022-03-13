@@ -47,6 +47,7 @@ struct aesd_buffer_entry
 
     
    // if( !len ) len = AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; //full 
+   if((!buffer->full) && (buffer->in_offs == buffer->out_offs)) return NULL; //if empty
 
     index = buffer->out_offs;
    //start parsing at out_offs 
