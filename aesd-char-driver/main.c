@@ -49,10 +49,7 @@ int aesd_open(struct inode *inode, struct file *filp)
 	dev = container_of(inode->i_cdev, struct aesd_dev, cdev);
 	filp->private_data = dev;
 
-	// if ((filp->f_flags) & O_ACCMODE) == O_WRONGLY)
-	// {
-
-	// }
+	
 	PDEBUG("open end");
 	return 0;
 }
@@ -70,7 +67,7 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
                 loff_t *f_pos)
 {
 	ssize_t no_of_bytes_read = 0;
-	size_t *entry_offset_byte_rtn;
+	size_t entry_offset_byte_rtn = 0;
 	//struct aesd_buffer_device->entry* entry;
 
 	struct aesd_dev* device;
@@ -96,42 +93,49 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 	 * available data is read  
 	 * (implementation handled by  hhigher level funcs like fread and cat)
 	 */
-	// entry = (struct aesd_buffer_entry*)kmalloc(sizeof(struct aesd_buffer_entry), GFP_KERNEL);
-	// if (entry == NULL)
-	// {
-	// 	printk(KERN_ALERT "kmalloc failed\n");
-	// 	return ENOMEM;
-	// }
+	
 
-	entry = aesd_circular_buffer_find_entry_offset_for_fpos(&device->circular_buffer, *f_pos, entry_offset_byte_rtn);
-	//////////no_of_bytes_read = device->entry->size;
+	entry = aesd_circular_buffer_find_entry_offset_for_fpos(&device->circular_buffer, *f_pos, &entry_offset_byte_rtn);
 	if( entry == NULL )
 	{
-		//kfree(entry);
-		return EFAULT;
+		printk(KERN_ALERT "find_entry_offset_for_fpos failed\n");
+		return -EFAULT;
 	}
 	
-	if( (entry->size) < count )
+	no_of_bytes_read = entry->size - entry_offset_byte_rtn;
+
+	// if( no_of_bytes_read < count )
+	// {
+	// 	if(copy_to_user( buf, entry->buffptr, no_of_bytes_read )!= 0)
+	// 	{
+	// 		//kfree(entry);
+	// 		return -EFAULT;
+	// 	}
+	// 	no_of_bytes_read = entry->size;
+	// }
+	// else
+	// {
+	// 	if(copy_to_user( buf, entry->buffptr, count )!= 0)
+	// 	{
+	// 		//kfree(entry);
+	// 		return EFAULT;
+	// 	}
+	// 	no_of_bytes_read = count;
+	// }
+	
+	if(copy_to_user( buf, entry->buffptr, no_of_bytes_read )!= 0)
 	{
-		if(copy_to_user( buf, entry->buffptr, no_of_bytes_read )!= 0)
-		{
-			//kfree(entry);
-			return EFAULT;
-		}
-		no_of_bytes_read = entry->size;
-	}
-	else
-	{
-		if(copy_to_user( buf, entry->buffptr, count )!= 0)
-		{
-			//kfree(entry);
-			return EFAULT;
-		}
-		no_of_bytes_read = count;
+		printk(KERN_ALERT "copy_to_user failed\n");
+		return -EFAULT;
 	}
 
-	//kfree(entry);
-	PDEBUG("Read end\n");
+	device->circular_buffer.full = 	FALSE;
+	device->circular_buffer.out_offs++;
+
+	if(device->circular_buffer.out_offs > AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+		device->circular_buffer.out_offs=0;
+	
+	printk(KERN_ALERT "Read end on reading %d bytes\n", no_of_bytes_read);
 	return no_of_bytes_read;
 }
 
@@ -153,7 +157,6 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 	device->total_count += count;
 	if(!device->write_pending)
 	{
-		PDEBUG(KERN_ALERT "first append\n");
 		entry->buffptr = (char*)kmalloc(count, GFP_KERNEL);
 		if (entry->buffptr == NULL)
 		{
@@ -195,9 +198,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 	 */
 	for ( i=0; i < device->total_count; i++)
 	{
-		//device->entry = (struct aesd_buffer_entry*)kmalloc(sizeof(struct aesd_buffer_entry));
-		//entry->buffptr = temp;
-		//PDEBUG("char found: %c\n", entry->buffptr[i]);
+
 		if(entry->buffptr[i] == '\n')
 		{
 			//entry->size = device->total_count;
