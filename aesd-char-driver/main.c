@@ -170,10 +170,6 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 		
 	}
 
-
-	/**
-	 * TODO: optimize index
-	 */
 	for ( i=0; i < device->total_count; i++)
 	{
 
