@@ -27,20 +27,17 @@
 
 struct aesd_dev
 {
-	/**
-	 * TODO: Add structure(s) and locks needed to complete assignment requirements
-	 */
-	//circular buffer structure
+		//circular buffer structure
 	struct aesd_circular_buffer circular_buffer;
 	// aesd_buffer_entry
 	struct aesd_buffer_entry* entry;
 	//locking primitive
+	struct mutex aesdchar_mutex;
 
 	//status variables
 	uint8_t write_pending;
 	size_t total_count;
 	
-	//write
 	struct cdev cdev;	  /* Char device structure		*/
 };
 

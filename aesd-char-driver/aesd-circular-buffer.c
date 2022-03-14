@@ -42,11 +42,6 @@ struct aesd_buffer_entry
    int i;
    uint8_t index = 0;
 
-    // calculate  length of circular buffer
-    // uint8_t  len = ((buffer->in_offs - buffer->out_offs) & (AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED - 1));
-
-    
-   // if( !len ) len = AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; //full 
    if((!buffer->full) && (buffer->in_offs == buffer->out_offs)) return NULL; //if empty
 
     index = buffer->out_offs;
@@ -66,9 +61,6 @@ struct aesd_buffer_entry
     {
         *entry_offset_byte_rtn = (char_offset);
 
-        // printf("Returning string %s \n",temp.buffptr);
-        // printf("Returning ofsetted string %s\n", &(buffer->entry[index].buffptr[*entry_offset_byte_rtn]));
-        
         return &(buffer->entry[index]);
 
     }
@@ -92,10 +84,7 @@ struct aesd_buffer_entry
 struct aesd_buffer_entry 
 aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
 {
-    /**
-    * TODO: implement per description 
-    */
-   struct aesd_buffer_entry ret = {NULL, 0};
+    struct aesd_buffer_entry ret = {NULL, 0};
 
     //check if full flag -> increment out_off
    if( buffer->full ) 
@@ -142,13 +131,13 @@ void print_buffer(struct aesd_circular_buffer *buffer){
 
     struct  aesd_buffer_entry temp;
     int i;
-    printk(KERN_ALERT "\n\n PRINT DEBUG \n\n");
+    PDEBUG( "\n\n PRINT DEBUG \n\n");
 
     
     for( i=0; i< AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++)
     {
         temp = buffer->entry[i];
         
-        printk(KERN_ALERT "%p: %s\n", temp.buffptr, temp.buffptr);
+        PDEBUG(KERN_ALERT "%p: %s\n", temp.buffptr, temp.buffptr);
     }
 }
