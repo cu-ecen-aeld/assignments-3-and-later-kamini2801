@@ -131,8 +131,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 	PDEBUG("write %zu bytes with offset %lld",count,*f_pos);
 
 	device = (struct aesd_dev*)filp->private_data;
-	printk(KERN_ALERT "entry global member has address: %p\n", aesd_device.entry);
-	printk(KERN_ALERT "entry member has address: %p\n", device->entry);
+	
 	entry = device->entry;
 
 	device->total_count += count;
@@ -195,7 +194,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 
 			if(ret_ptr.buffptr != NULL)
 			{
-				printk(KERN_ALERT "Freed %p\n", ret_ptr.buffptr);
+				PDEBUG("Freed %p\n", ret_ptr.buffptr);
 				kfree(ret_ptr.buffptr);
 			}		
 			retval = device->total_count; 

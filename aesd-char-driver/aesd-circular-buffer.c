@@ -131,13 +131,13 @@ void print_buffer(struct aesd_circular_buffer *buffer){
 
     struct  aesd_buffer_entry temp;
     int i;
-    PDEBUG( "\n\n PRINT DEBUG \n\n");
+    printk( KERN_ALERT "\n\n PRINT DEBUG \n\n");
 
     
     for( i=0; i< AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++)
     {
         temp = buffer->entry[i];
         
-        PDEBUG(KERN_ALERT "%p: %s\n", temp.buffptr, temp.buffptr);
+       printk( KERN_ALERT "%p: %s\n", temp.buffptr, temp.buffptr);
     }
 }
