@@ -24,7 +24,8 @@
 #include <poll.h>
 #include "queue.h"
 
-#define MY_SOCK_PATH "/var/tmp/aesdsocketdata"
+//#define MY_SOCK_PATH "/var/tmp/aesdsocketdata"
+#define MY_SOCK_PATH "/dev/aesdchar"
 #define LISTEN_BACKLOG 50
 #define SERVER_PORT "9000"
 #define BUF_SIZE 1024
@@ -161,6 +162,14 @@ void *socket_func(void *arg)
         _exit(EXIT_FAILURE);
     }
 
+    //open every time to maintain fpos
+    fd = open(MY_SOCK_PATH, O_CREAT | O_RDWR | O_APPEND, 0644);
+    if (fd == -1)
+    {
+        syslog(LOG_ERR, "open failed with error code: %s\n", strerror(fd));
+        exit(EXIT_FAILURE);
+    }
+
     //Appending Packet to the file
     lseek(fd, 0, SEEK_END);
 
@@ -173,7 +182,8 @@ void *socket_func(void *arg)
     }
     // printf("Writing %d bytes\n", bytes);
 
-    lseek(fd, 0, SEEK_SET);
+    // No lseek for aesdchar device
+    // lseek(fd, 0, SEEK_SET);
 
     while ((bytes = read(fd, recv_buf, BUF_SIZE)) != 0)
     {
@@ -191,8 +201,9 @@ void *socket_func(void *arg)
             _exit(EXIT_FAILURE);
         }
     }
-
-    free(tx_buf);
+    // close every single time
+    if (close(fd))
+        return(EXIT_FAILURE);
 
     node->comp_flag = 1;
 
@@ -204,6 +215,7 @@ void *socket_func(void *arg)
         cleanup_on_exit();
         _exit(EXIT_FAILURE);
     }
+    free(tx_buf);
 
     return NULL;
 }
@@ -440,14 +452,14 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    remove(MY_SOCK_PATH);
+    // remove(MY_SOCK_PATH);
 
-    fd = open(MY_SOCK_PATH, O_CREAT | O_RDWR | O_APPEND, 0644);
-    if (fd == -1)
-    {
-        syslog(LOG_ERR, "open failed with error code: %s\n", strerror(fd));
-        exit(EXIT_FAILURE);
-    }
+    // fd = open(MY_SOCK_PATH, O_CREAT | O_RDWR | O_APPEND, 0644);
+    // if (fd == -1)
+    // {
+    //     syslog(LOG_ERR, "open failed with error code: %s\n", strerror(fd));
+    //     exit(EXIT_FAILURE);
+    // }
 
     syslog(LOG_DEBUG, "Opened %s\n", MY_SOCK_PATH);
 
@@ -492,12 +504,12 @@ int main(int argc, char *argv[])
     }
 
     //Time update thread for servicing all connection threads
-    p_ret = pthread_create(&thread, NULL, time_func, &head);
-    if (p_ret)
-    {
-        syslog(LOG_ERR, "pthread_create failed with error: %s", strerror(p_ret));
-        exit(EXIT_FAILURE);
-    }
+    // p_ret = pthread_create(&thread, NULL, time_func, &head);
+    // if (p_ret)
+    // {
+    //     syslog(LOG_ERR, "pthread_create failed with error: %s", strerror(p_ret));
+    //     exit(EXIT_FAILURE);
+    // }
 
 
     // Set up polling for socket

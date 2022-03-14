@@ -94,7 +94,6 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 	 * (implementation handled by  hhigher level funcs like fread and cat)
 	 */
 	
-
 	entry = aesd_circular_buffer_find_entry_offset_for_fpos(&device->circular_buffer, *f_pos, &entry_offset_byte_rtn);
 	if( entry == NULL )
 	{
@@ -111,21 +110,9 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 		return -EFAULT;
 	}
 
-	// Circular Buffer servicing	
-	//if((no_of_bytes_read - entry->size) == 0)
-		
-	// kfree(entry->buffptr);
-
-	//device->circular_buffer.out_offs++;
 
 	*f_pos += no_of_bytes_read;
-
-	// device->circular_buffer.full = 	FALSE;
-
-	// if(device->circular_buffer.out_offs >= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
-	// 	device->circular_buffer.out_offs=0;
 	
-	//
 	printk(KERN_ALERT "Read end on reading %ld bytes\n", no_of_bytes_read);
 	return no_of_bytes_read;
 }
@@ -291,6 +278,8 @@ int aesd_init_module(void)
 
 void aesd_cleanup_module(void)
 {
+	uint8_t index;
+
 	dev_t devno = MKDEV(aesd_major, aesd_minor);
 
 	cdev_del(&aesd_device.cdev);
@@ -301,6 +290,15 @@ void aesd_cleanup_module(void)
 	 * kfree memeory
 	 * unlock
 	 */
+	
+ 	// struct aesd_circular_buffer buffer;
+ 	// struct aesd_buffer_entry *entry;
+ 	// AESD_CIRCULAR_BUFFER_FOREACH(aesd_device.entry,&aesd_device.circular_buffer,index) {
+ 	// 	if(aesd_device.entry->buffptr == NULL)
+	// 	 	break;
+	// 	kfree(aesd_device.entry->buffptr);
+ 	// }
+	// kfree(aesd_device.entry);
 	printk(KERN_ALERT "AESD CHAR EXIT\n");
 
 	unregister_chrdev_region(devno, 1);
