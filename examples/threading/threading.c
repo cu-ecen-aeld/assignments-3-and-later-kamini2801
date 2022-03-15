@@ -14,20 +14,49 @@ void* threadfunc(void* thread_param)
     // TODO: wait, obtain mutex, wait, release mutex as described by thread_data structure
     // hint: use a cast like the one below to obtain thread arguments from your parameter
     //struct thread_data* thread_func_args = (struct thread_data *) thread_param;
-    return thread_param;
+    
+    struct thread_data* thread_func_args = (struct thread_data *) thread_param;
+    
+    DEBUG_LOG("Waiting till lock\n");
+    usleep((thread_func_args->obtain_ms)*1000);
+    pthread_mutex_lock(thread_func_args->mutex);
+
+    DEBUG_LOG("holding till release\n");
+    usleep((thread_func_args->release_ms)*1000);
+    pthread_mutex_unlock(thread_func_args->mutex);
+    
+    DEBUG_LOG("thread complete\n");
+    thread_func_args->thread_complete_success=true;
+    return thread_func_args;  
 }
 
 
-bool start_thread_obtaining_mutex(pthread_t *thread, pthread_mutex_t *mutex,int wait_to_obtain_ms, int wait_to_release_ms)
+bool start_thread_obtaining_mutex(pthread_t *thread, pthread_mutex_t *mutex, int wait_to_obtain_ms, int wait_to_release_ms)
 {
     /**
-     * TODO: allocate memory for thread_data, setup mutex and wait arguments, pass thread_data to created thread
+     * TODO: allocate memory for git fetch assignments-basethread_data, setup mutex and wait arguments, pass thread_data to created thread
      * using threadfunc() as entry point.
      *
      * return true if successful.
      * 
      * See implementation details in threading.h file comment block
      */
-    return false;
+ 
+    thread_data_t* thread_param;
+    thread_param=(thread_data_t*)malloc(sizeof(thread_data_t));
+    
+    thread_param->obtain_ms=wait_to_obtain_ms;
+    thread_param->release_ms=wait_to_release_ms;
+
+    thread_param->mutex=mutex;
+
+    int ret=pthread_create(thread, NULL, threadfunc, thread_param);
+    if(ret!=0) {
+        ERROR_LOG("create failed\n");
+        return false;
+    }
+        
+    else DEBUG_LOG("\n\nthread created\n");
+    return true;
 }
 

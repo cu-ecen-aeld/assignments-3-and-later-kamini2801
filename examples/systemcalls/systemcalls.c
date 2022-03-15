@@ -1,4 +1,10 @@
 #include "systemcalls.h"
+#include <stdlib.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <syslog.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -16,10 +22,10 @@ bool do_system(const char *cmd)
  *   and return a boolean true if the system() call completed with success 
  *   or false() if it returned a failure
 */
-
-    return true;
+    bool ret=system(cmd);
+    if(!ret) return true;
+    else return false;
 }
-
 /**
 * @param count -The numbers of variables passed to the function. The variables are command to execute.
 *   followed by arguments to pass to the command
@@ -47,7 +53,7 @@ bool do_exec(int count, ...)
     command[count] = NULL;
     // this line is to avoid a compile warning before your implementation is complete
     // and may be removed
-    command[count] = command[count];
+    //command[count] = command[count];
 
 /*
  * TODO:
@@ -56,12 +62,37 @@ bool do_exec(int count, ...)
  *   Use the command[0] as the full path to the command to execute
  *   (first argument to execv), and use the remaining arguments
  *   as second argument to the execv() command.
- *   
+ *   ;
 */
 
-    va_end(args);
+    int status;
+    pid_t pid;
 
-    return true;
+    pid=fork();
+
+    if(pid==-1){
+        perror("fork");
+        return -1;
+        
+    }
+    else if(pid==0){
+        int err=execv(command[0], command);
+        if(err==-1){
+            perror("execv");
+            exit(-1);
+        } 
+    }
+    pid_t ret=wait(&status);//waitpid(pid,&status, 0);
+    if(ret==-1){
+        perror("waitpid");
+        return -1;
+    }
+    else if(WIFEXITED(status)){
+        return !WEXITSTATUS(status);
+    }
+
+    return -1;
+
 }
 
 /**
@@ -92,8 +123,49 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *   The rest of the behaviour is same as do_exec()
  *   
 */
-
-    va_end(args);
     
-    return true;
+    
+    int status;
+    pid_t pid;
+
+    pid=fork();
+
+    if(pid==-1){
+        perror("fork");
+        return -1;
+        
+    }
+    else if(pid==0){
+              
+        int fd=open(outputfile,O_CREAT|O_WRONLY|O_TRUNC, 0644);
+
+        if(fd==-1){
+            perror("fork");
+            return -1;
+        }
+
+        int ret_fd= dup2(fd, STDOUT_FILENO);
+
+        if(ret_fd==fd) printf("Successfully duplicated\n");
+        if(ret_fd==-1){
+            perror("Redirect fail");
+            return -1;
+        }
+        int err=execv(command[0], command);
+        if(err==-1){
+            perror("execv");
+            close(fd);
+            exit(-1);
+        } 
+    }
+    pid_t ret=wait(&status);
+    if(ret==-1){
+        perror("waitpid");
+        return -1;
+    }
+    else if(WIFEXITED(status)){
+        va_end(args);
+        return !WEXITSTATUS(status);
+    }
+    return -1;
 }
