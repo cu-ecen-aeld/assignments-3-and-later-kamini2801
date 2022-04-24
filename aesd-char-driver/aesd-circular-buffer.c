@@ -10,6 +10,8 @@
 
 #ifdef __KERNEL__
 #include <linux/string.h>
+#include <linux/init.h>
+#include <linux/module.h>
 #else
 #include <string.h>
 #include <stdio.h>
@@ -33,19 +35,19 @@ struct aesd_buffer_entry
 {
     /**
     * TODO: implement per description
-    */
+    */ 
 
    struct  aesd_buffer_entry temp;
+   uint8_t len = AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
+   int i;
+   uint8_t index = 0;
 
-   // calculate  length of circular buffer
-    // uint8_t  len = ((buffer->in_offs - buffer->out_offs) & (AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED - 1));
+   if((!buffer->full) && (buffer->in_offs == buffer->out_offs)) return NULL; //if empty
 
-    uint8_t len = 10;
-   if( !len ) len = AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; //full 
-
-    uint8_t index = buffer->out_offs;
+    index = buffer->out_offs;
    //start parsing at out_offs 
-   for( int i = 0; i < len; i++)
+   
+   for(i = 0; i < len; i++)
    {
        
     temp = buffer->entry[index];
@@ -59,9 +61,6 @@ struct aesd_buffer_entry
     {
         *entry_offset_byte_rtn = (char_offset);
 
-        // printf("Returning string %s \n",temp.buffptr);
-        // printf("Returning ofsetted string %s\n", &(buffer->entry[index].buffptr[*entry_offset_byte_rtn]));
-        
         return &(buffer->entry[index]);
 
     }
@@ -82,11 +81,17 @@ struct aesd_buffer_entry
 * Any necessary locking must be handled by the caller
 * Any memory referenced in @param add_entry must be allocated by and/or must have a lifetime managed by the caller.
 */
-void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
+struct aesd_buffer_entry 
+aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
 {
-    /**
-    * TODO: implement per description 
-    */
+    struct aesd_buffer_entry ret = {NULL, 0};
+
+    //check if full flag -> increment out_off
+   if( buffer->full ) 
+    {
+        ret = buffer->entry[buffer->out_offs];
+        buffer->out_offs++;
+    }
 
     buffer->entry[buffer->in_offs] = *add_entry;   
      
@@ -96,15 +101,13 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
    if(buffer->in_offs >= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED) 
         buffer->in_offs = 0;
 
-   //check if full flag -> increment out_off
-   if( buffer->full ) buffer->out_offs++;
-
-   if(buffer->out_offs >= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED) 
+    if(buffer->out_offs >= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED) 
         buffer->out_offs = 0;       // roll back as per circular buffer
 
    // if in_off == out_off -> set full flag
    if(buffer->in_offs == buffer->out_offs) buffer->full = true;
 
+    return ret;
 }
 
 /**
@@ -127,12 +130,22 @@ void aesd_circular_buffer_init(struct aesd_circular_buffer *buffer)
 void print_buffer(struct aesd_circular_buffer *buffer){
 
     struct  aesd_buffer_entry temp;
+    int i;
+    #ifdef __KERNEL__
+    printk( KERN_ALERT "\n\n PRINT DEBUG \n\n");
+    #else
     printf("\n\n PRINT DEBUG \n\n");
+    #endif
 
-    for( int i=0; i< AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++)
+    for( i=0; i< AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++)
     {
         temp = buffer->entry[i];
         
-        printf("%s \n", temp.buffptr);
+        #ifdef __KERNEL__
+        printk( KERN_ALERT "%p: %s\n", temp.buffptr, temp.buffptr);
+        #else
+        printf("%p: %s\n", temp.buffptr, temp.buffptr);
+        #endif
+
     }
 }

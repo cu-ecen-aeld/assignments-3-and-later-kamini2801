@@ -8,16 +8,14 @@ ifeq ($(LDFLAGS),)
 	LDFLAGS = -pthread -lrt
 endif
 
-all:    aesdsocket queue.o
+all:	aesdsocket queue.o
 
 clean:
 		-rm -f *.o *.d
-		-rm -f aesdsocket 
+		-rm -f aesdsocket my_test
 
 aesdsocket: aesdsocket.o queue.o
 		$(CC) $(CFLAGS) $^ -o $@ $(INCLUDES) $(LDFLAGS)
-
-
 
 aesdsocket.o: aesdsocket.c
 		$(CROSS_COMPILE)$(CC)  -c $^
